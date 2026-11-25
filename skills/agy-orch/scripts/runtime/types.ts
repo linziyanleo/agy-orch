@@ -67,7 +67,7 @@ export interface HandoffPacket {
 export interface RoleConfig {
   agent?: string;
   backend?: string;
-  model: string;
+  model?: string | null;
   effort?: string;
   max_rounds?: number;
   timeout_sec?: number;
@@ -176,6 +176,7 @@ export interface WorkspaceFingerprint {
   head: string;
   entries: Record<string, FileSnapshotEntry>;
   computed_at: string;
+  status_error?: string;
 }
 
 export interface Finding {
@@ -225,7 +226,7 @@ export interface RunRecord {
   command: CommandKind;
   role: string;
   backend: string;
-  model: string;
+  model: string | null;
   effort: string | null;
   sandbox: SandboxMode;
   timeout_sec: number;

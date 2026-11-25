@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { computeWorkspaceFingerprint } from "./fingerprint.ts";
@@ -31,6 +32,26 @@ export function loadRun(runId: string): RunRecord | null {
 
 export function saveTask(task: TaskRecord): void {
   atomicWriteJson(getTaskFilePath(task.task_id), task);
+}
+
+export function createTaskExclusive(
+  task: TaskRecord
+): { created: true } | { created: false; existing: TaskRecord | null } {
+  const filePath = getTaskFilePath(task.task_id);
+  ensureDir(path.dirname(filePath));
+  const tmpPath = `${filePath}.${crypto.randomUUID()}.tmp`;
+  fs.writeFileSync(tmpPath, `${JSON.stringify(task, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
+  try {
+    fs.linkSync(tmpPath, filePath);
+    return { created: true };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+      return { created: false, existing: loadTask(task.task_id) };
+    }
+    throw err;
+  } finally {
+    fs.rmSync(tmpPath, { force: true });
+  }
 }
 
 export function loadTask(taskId: string): TaskRecord | null {
@@ -93,7 +114,11 @@ export function refreshRunFreshness(run: RunRecord): RunRecord {
     return run;
   }
   const current = computeWorkspaceFingerprint(run.effective_cwd);
-  if (current.digest !== run.pre_fingerprint.digest) {
+  if (current.status_error || run.pre_fingerprint.status_error) {
+    run.freshness_status = "invalid_boundary";
+    run.verdict_valid = false;
+    run.acceptance_status = "stale";
+  } else if (current.digest !== run.pre_fingerprint.digest) {
     run.freshness_status = "stale_by_code_change";
     run.verdict_valid = false;
     run.acceptance_status = "stale";

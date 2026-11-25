@@ -17,7 +17,7 @@ const INVALID_PARAM_RE =
 export interface BackendExecOptions {
   command: CommandKind;
   backend: DiscoveredBackend;
-  model: string;
+  model: string | null;
   effort: string | null;
   sandbox: SandboxMode;
   effectiveCwd: string;
@@ -46,7 +46,7 @@ export interface BackendExecResult {
 
 export function buildBackendArgs(opts: {
   backend: DiscoveredBackend;
-  model: string;
+  model: string | null;
   effort: string | null;
   sandbox: SandboxMode;
   effectiveCwd: string;
@@ -275,6 +275,7 @@ export async function executeBackend(opts: BackendExecOptions): Promise<BackendE
   let rawStdout = "";
   let rawStderr = "";
   let timedOut = false;
+  let timeoutKillResult: { dead: boolean; escalated_to_sigkill: boolean } | null = null;
 
   const eventsStream = fs.createWriteStream(opts.rawEventsPath, { flags: "w" });
   const stderrStream = fs.createWriteStream(opts.stderrPath, { flags: "w" });
@@ -316,11 +317,13 @@ export async function executeBackend(opts: BackendExecOptions): Promise<BackendE
     spawnError: Error | null;
   }>((resolve) => {
     let settled = false;
+    let timeoutCleanup: ReturnType<typeof killProcessGroup> | undefined;
     const timeoutMs = Math.max(1, opts.timeoutSec) * 1000;
     const timer = setTimeout(async () => {
       timedOut = true;
       if (child.pid) {
-        await killProcessGroup(child.pid, 2000);
+        timeoutCleanup = killProcessGroup(child.pid, 2000);
+        timeoutKillResult = await timeoutCleanup;
       }
       if (!settled) {
         settled = true;
@@ -328,18 +331,20 @@ export async function executeBackend(opts: BackendExecOptions): Promise<BackendE
       }
     }, timeoutMs);
 
-    child.on("error", (err) => {
+    child.on("error", async (err) => {
       clearTimeout(timer);
       if (!settled) {
         settled = true;
+        if (timeoutCleanup) timeoutKillResult = await timeoutCleanup;
         resolve({ code: null, signal: null, spawnError: err });
       }
     });
 
-    child.on("close", (code, signal) => {
+    child.on("close", async (code, signal) => {
       clearTimeout(timer);
       if (!settled) {
         settled = true;
+        if (timeoutCleanup) timeoutKillResult = await timeoutCleanup;
         resolve({ code, signal, spawnError: null });
       }
     });
@@ -366,7 +371,10 @@ export async function executeBackend(opts: BackendExecOptions): Promise<BackendE
       signal: exitInfo.signal,
       backend_session_id: timedOutSessionId,
       failure_kind: "timed_out",
-      failure_message: `Execution timed out after ${opts.timeoutSec}s and process group was terminated`,
+      failure_message:
+        timeoutKillResult && !timeoutKillResult.dead
+          ? `Execution timed out after ${opts.timeoutSec}s; process group termination could not be confirmed`
+          : `Execution timed out after ${opts.timeoutSec}s and process group was terminated`,
       parsed_output: null,
       insufficient_evidence_ids: [],
     };

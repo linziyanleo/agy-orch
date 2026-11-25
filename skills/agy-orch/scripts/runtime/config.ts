@@ -19,19 +19,14 @@ export const DEFAULT_ROLES: Record<string, RoleConfig> = {
   lead: {
     agent: "agy",
     backend: "agy",
-    model: "gemini-4",
   },
   reviewer: {
     backend: "codex",
-    model: "gpt-6.2-sol",
-    effort: "xhigh",
     max_rounds: 2,
     timeout_sec: 600,
   },
   implementer: {
     backend: "codex",
-    model: "gpt-6.2-sol",
-    effort: "high",
     timeout_sec: 900,
   },
 };
@@ -194,6 +189,18 @@ function sanitizeProjectConfig(
   return { sanitized, ignoredKeys };
 }
 
+function mergeRoleLayer(base: RoleConfig, override: Partial<RoleConfig>): RoleConfig {
+  const prevBackend = base.backend;
+  const nextBackend = override.backend ?? prevBackend;
+  const switchedBackend = Boolean(override.backend && prevBackend && override.backend !== prevBackend);
+  const carried = switchedBackend ? { ...base, model: undefined, effort: undefined } : base;
+  return {
+    ...carried,
+    ...override,
+    backend: nextBackend,
+  };
+}
+
 export function loadMergedConfig(cwd?: string): ResolvedConfig {
   const userConfigPath = getUserConfigPath();
   const userExists = fs.existsSync(userConfigPath);
@@ -212,14 +219,10 @@ export function loadMergedConfig(cwd?: string): ResolvedConfig {
   ]);
 
   for (const roleName of allRoleNames) {
-    const base = DEFAULT_ROLES[roleName] ?? { backend: "codex", model: "gpt-6.2-sol" };
+    const base = DEFAULT_ROLES[roleName] ?? { backend: "codex" };
     const userRole = userCfg.roles?.[roleName] ?? {};
     const projRole = projectCfg.roles?.[roleName] ?? {};
-    roles[roleName] = {
-      ...base,
-      ...userRole,
-      ...projRole,
-    };
+    roles[roleName] = mergeRoleLayer(mergeRoleLayer(base, userRole), projRole);
   }
 
   const defaults = {
@@ -259,7 +262,7 @@ export interface ResolveRunInput {
 export interface ResolvedRunSettings {
   role: string;
   backend: string;
-  model: string;
+  model: string | null;
   effort: string | null;
   timeout_sec: number;
   max_rounds: number;
@@ -280,12 +283,14 @@ export function resolveRunSettings(input: ResolveRunInput): ResolvedRunSettings 
       ? Number(envTimeoutRaw)
       : undefined;
 
-  const backendName = input.backend ?? envBackend ?? roleCfg.backend ?? "codex";
+  const roleBackend = roleCfg.backend ?? "codex";
+  const backendName = input.backend ?? envBackend ?? roleBackend;
+  const backendRole = backendName === roleBackend ? roleCfg : undefined;
   const backendDiscovered = getBackend(backendName);
   const backendDefaults = backendDiscovered?.profile.defaults;
 
-  const model = input.model ?? envModel ?? roleCfg.model ?? backendDefaults?.model ?? "gpt-6.2-sol";
-  const effort = input.effort ?? envEffort ?? roleCfg.effort ?? backendDefaults?.effort ?? null;
+  const model = input.model ?? envModel ?? backendRole?.model ?? backendDefaults?.model ?? null;
+  const effort = input.effort ?? envEffort ?? backendRole?.effort ?? backendDefaults?.effort ?? null;
   const timeout_sec =
     input.timeout_sec ??
     envTimeout ??

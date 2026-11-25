@@ -204,7 +204,7 @@ export function applyDispositions(
     return { ok: false, errors: ["run has no parsed review findings to dispose"] };
   }
 
-  const findings = run.parsed_output.findings;
+  const { findings, verdict } = run.parsed_output;
   const findingMap = new Map<string, Finding>(findings.map((f) => [f.id, f]));
   const decisionMap = new Map<string, FindingDispositionInput>();
   const errors: string[] = [];
@@ -309,13 +309,19 @@ export function applyDispositions(
   }
 
   let acceptance_status: AcceptanceStatus;
-  if (run.freshness_status === "stale_by_code_change") {
-    acceptance_status = "stale";
-  } else if (run.boundary_violation || run.execution_status !== "completed") {
+  if (
+    run.freshness_status === "invalid_boundary" ||
+    run.boundary_violation ||
+    run.execution_status !== "completed"
+  ) {
     acceptance_status = "blocked";
+  } else if (run.freshness_status === "stale_by_code_change") {
+    acceptance_status = "stale";
   } else if (unresolvedBlockingIds.length > 0) {
     // Round cap NEVER auto-approves an unresolved real_defect or requirement_gap.
     acceptance_status = run.round >= run.max_rounds ? "blocked" : "changes_requested";
+  } else if (findings.length === 0 && verdict !== "approve") {
+    acceptance_status = verdict;
   } else {
     acceptance_status = "approved";
   }

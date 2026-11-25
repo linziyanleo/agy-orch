@@ -13,8 +13,6 @@
     "worktree": false
   },
   "defaults": {
-    "model": "gemini-4",
-    "effort": "high",
     "timeout_sec": 900
   },
   "exec": {

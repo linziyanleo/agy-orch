@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { ensureDir, getLocksDir, hashString } from "./paths.ts";
@@ -10,7 +11,7 @@ export function isPidAlive(pid: number): boolean {
     return true;
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    return code === "EPERM";
+    return code !== "ESRCH";
   }
 }
 
@@ -78,6 +79,121 @@ export function getWriterLockPath(effectiveCwd: string): string {
   return path.join(getLocksDir(), `${hashString(effectiveCwd)}.writer.lock`);
 }
 
+const mutationWait = new Int32Array(new SharedArrayBuffer(4));
+
+function readGuardOwner(guardPath: string): { pid: number; stat: fs.BigIntStats } | null {
+  try {
+    const fd = fs.openSync(guardPath, "r");
+    try {
+      const stat = fs.fstatSync(fd, { bigint: true });
+      const parsed = JSON.parse(fs.readFileSync(fd, "utf8")) as { pid?: unknown };
+      if (typeof parsed?.pid !== "number" || !Number.isInteger(parsed.pid) || parsed.pid <= 0) {
+        return null;
+      }
+      return { pid: parsed.pid, stat };
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+}
+
+function withLockMutation<T>(lockPath: string, mutate: () => T): T {
+  // Serializes the ownership check and filesystem mutation across processes using a PID-owned guard file.
+  const guardPath = `${lockPath}.guard`;
+  const tempGuard = `${guardPath}.${randomUUID()}.tmp`;
+  const fd = fs.openSync(tempGuard, "wx");
+  let ownStat: fs.BigIntStats;
+  try {
+    fs.writeFileSync(fd, `${JSON.stringify({ pid: process.pid })}\n`, "utf8");
+    ownStat = fs.fstatSync(fd, { bigint: true });
+  } finally {
+    fs.closeSync(fd);
+  }
+
+  let acquired = false;
+  try {
+    const deadline = performance.now() + 1000;
+    for (;;) {
+      try {
+        fs.linkSync(tempGuard, guardPath);
+        acquired = true;
+        break;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+        const owner = readGuardOwner(guardPath);
+        if (owner && !isPidAlive(owner.pid) && isCurrentLock(guardPath, owner.stat)) {
+          try {
+            fs.unlinkSync(guardPath);
+          } catch (unlinkErr) {
+            if ((unlinkErr as NodeJS.ErrnoException).code !== "ENOENT") throw unlinkErr;
+          }
+          continue;
+        }
+        if (performance.now() >= deadline) {
+          throw new Error(`Writer lock mutation guard is busy: ${guardPath}`);
+        }
+        Atomics.wait(mutationWait, 0, 0, 10);
+      }
+    }
+  } finally {
+    fs.rmSync(tempGuard, { force: true });
+  }
+
+  try {
+    return mutate();
+  } finally {
+    if (acquired && isCurrentLock(guardPath, ownStat)) {
+      fs.rmSync(guardPath, { force: true });
+    }
+  }
+}
+
+function withLockTemp<T>(lockPath: string, record: WriterLockRecord, use: (tempPath: string) => T): T {
+  const tempPath = `${lockPath}.${randomUUID()}.tmp`;
+  const fd = fs.openSync(tempPath, "wx");
+  try {
+    try {
+      fs.writeFileSync(fd, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+    } finally {
+      fs.closeSync(fd);
+    }
+    return use(tempPath);
+  } finally {
+    fs.rmSync(tempPath, { force: true });
+  }
+}
+
+function readWriterLock(lockPath: string): { record: WriterLockRecord; stat: fs.BigIntStats } | null {
+  try {
+    const fd = fs.openSync(lockPath, "r");
+    try {
+      const stat = fs.fstatSync(fd, { bigint: true });
+      const record = JSON.parse(fs.readFileSync(fd, "utf8")) as WriterLockRecord;
+      if (
+        !record || !Number.isInteger(record.pid) || record.pid <= 0 ||
+        (record.pgid !== null && !Number.isInteger(record.pgid)) ||
+        typeof record.run_id !== "string" || typeof record.task_id !== "string" ||
+        typeof record.cwd !== "string" || typeof record.acquired_at !== "string"
+      ) {
+        throw new Error("Invalid lock record");
+      }
+      return { record, stat };
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw new Error(`Cannot read writer lock at ${lockPath}`, { cause: err });
+  }
+}
+
+function isCurrentLock(lockPath: string, expected: fs.BigIntStats): boolean {
+  const current = fs.lstatSync(lockPath, { bigint: true, throwIfNoEntry: false });
+  return current?.dev === expected.dev && current.ino === expected.ino;
+}
+
 export function acquireWriterLock(
   effectiveCwd: string,
   runId: string,
@@ -97,42 +213,27 @@ export function acquireWriterLock(
     acquired_at: new Date().toISOString(),
   };
 
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      fs.writeFileSync(lockPath, `${JSON.stringify(payload, null, 2)}\n`, {
-        encoding: "utf8",
-        flag: "wx",
-      });
-      return { acquired: true, lockPath };
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code !== "EEXIST") {
-        throw err;
-      }
+  return withLockTemp(lockPath, payload, (tempPath) => withLockMutation(lockPath, () => {
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        const raw = fs.readFileSync(lockPath, "utf8");
-        const existing = JSON.parse(raw) as WriterLockRecord;
-        if (existing && isPidAlive(existing.pid)) {
-          return { acquired: false, existing, lockPath };
-        }
-        // Stale lock whose holder PID no longer exists.
+        fs.linkSync(tempPath, lockPath);
+        return { acquired: true, lockPath };
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      }
+
+      const snapshot = readWriterLock(lockPath);
+      if (!snapshot) continue;
+      const { record: existing, stat } = snapshot;
+      if (isPidAlive(existing.pid) || (existing.pgid !== null && isProcessGroupAlive(existing.pgid))) {
+        return { acquired: false, existing, lockPath };
+      }
+      if (isCurrentLock(lockPath, stat)) {
         fs.unlinkSync(lockPath);
-      } catch {
-        try {
-          fs.unlinkSync(lockPath);
-        } catch {
-          // ignore race
-        }
       }
     }
-  }
-
-  const raw = fs.readFileSync(lockPath, "utf8");
-  return {
-    acquired: false,
-    existing: JSON.parse(raw) as WriterLockRecord,
-    lockPath,
-  };
+    throw new Error(`Writer lock changed repeatedly at ${lockPath}`);
+  }));
 }
 
 export function updateWriterLockPid(
@@ -142,13 +243,14 @@ export function updateWriterLockPid(
   pgid: number | null
 ): void {
   const lockPath = getWriterLockPath(effectiveCwd);
-  if (!fs.existsSync(lockPath)) return;
   try {
-    const existing = JSON.parse(fs.readFileSync(lockPath, "utf8")) as WriterLockRecord;
-    if (existing.run_id !== runId) return;
-    existing.pid = pid;
-    existing.pgid = pgid;
-    fs.writeFileSync(lockPath, `${JSON.stringify(existing, null, 2)}\n`, "utf8");
+    withLockMutation(lockPath, () => {
+      const snapshot = readWriterLock(lockPath);
+      if (snapshot?.record.run_id !== runId) return;
+      withLockTemp(lockPath, { ...snapshot.record, pid, pgid }, (tempPath) => {
+        if (isCurrentLock(lockPath, snapshot.stat)) fs.renameSync(tempPath, lockPath);
+      });
+    });
   } catch {
     // best-effort update
   }
@@ -156,12 +258,13 @@ export function updateWriterLockPid(
 
 export function releaseWriterLock(effectiveCwd: string, runId: string): void {
   const lockPath = getWriterLockPath(effectiveCwd);
-  if (!fs.existsSync(lockPath)) return;
   try {
-    const existing = JSON.parse(fs.readFileSync(lockPath, "utf8")) as WriterLockRecord;
-    if (existing.run_id === runId) {
-      fs.unlinkSync(lockPath);
-    }
+    withLockMutation(lockPath, () => {
+      const snapshot = readWriterLock(lockPath);
+      if (snapshot?.record.run_id === runId && isCurrentLock(lockPath, snapshot.stat)) {
+        fs.unlinkSync(lockPath);
+      }
+    });
   } catch {
     // avoid deleting an unknown lock
   }

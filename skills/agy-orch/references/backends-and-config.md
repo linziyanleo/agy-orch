@@ -12,31 +12,28 @@ Reference for configuring roles, models, reasoning effort, timeouts, and custom 
 4. User config (`~/.config/agy-orch/config.json`, or `$AGY_ORCH_CONFIG_DIR/config.json`).
 5. Bundled backend defaults (`skills/agy-orch/backends/<name>.json`).
 
+For `timeout_sec`, role-level `timeout_sec` takes precedence over the backend profile's `defaults.timeout_sec`, and top-level `defaults.timeout_sec` acts as the final fallback when neither the role nor the backend profile specifies a timeout. Use `--timeout-sec`, `AGY_ORCH_TIMEOUT_SEC`, or a role's `timeout_sec` to override a bundled backend timeout.
+
 `agy-orch` never reads or writes `~/.codex/config.toml`.
 
 ## Default Roles (`~/.config/agy-orch/config.json`)
 
-Running `node "$AGY_ORCH" config init` writes the default user config if it does not exist yet:
+Running `node "$AGY_ORCH" config init` writes the default user config if it does not exist yet. By default `model` and `effort` are omitted so the underlying CLI uses its own configured defaults:
 
 ```json
 {
   "roles": {
     "lead": {
       "agent": "agy",
-      "backend": "agy",
-      "model": "gemini-4"
+      "backend": "agy"
     },
     "reviewer": {
       "backend": "codex",
-      "model": "gpt-6.2-sol",
-      "effort": "xhigh",
       "max_rounds": 2,
       "timeout_sec": 600
     },
     "implementer": {
       "backend": "codex",
-      "model": "gpt-6.2-sol",
-      "effort": "high",
       "timeout_sec": 900
     }
   },
@@ -49,7 +46,7 @@ Running `node "$AGY_ORCH" config init` writes the default user config if it does
 
 ### Overriding Model or Reasoning Effort
 
-If your active Codex account uses a different model identifier, update `roles.reviewer.model` / `roles.implementer.model` in `~/.config/agy-orch/config.json`, set project overrides in `.agy-orch/config.json`, or pass `--model <id>` / `--effort <level>` on the CLI. When a backend rejects a model or effort, `agy-orch` fails explicitly with `failure_kind: "invalid_parameter"` and never falls back silently.
+To pin a specific model or reasoning effort, set `roles.reviewer.model` / `roles.reviewer.effort` (or `implementer`) in `~/.config/agy-orch/config.json`, add project overrides in `.agy-orch/config.json`, set `AGY_ORCH_MODEL` / `AGY_ORCH_EFFORT`, or pass `--model <id>` / `--effort <level>` on the CLI. When `--backend` or `AGY_ORCH_BACKEND` overrides a role's configured backend to a different backend, `agy-orch` does not inherit the previous backend's `model` or `effort`. When a backend rejects a supplied model or effort, `agy-orch` fails explicitly with `failure_kind: "invalid_parameter"` and never falls back silently.
 
 You can also add custom roles (for example `security_reviewer` or `backend_coder`) in `roles` and select them with `--role <name>`.
 

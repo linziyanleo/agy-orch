@@ -33,16 +33,22 @@ function shouldIgnoreRelPath(relPath: string): boolean {
   );
 }
 
-function runGit(cwd: string, args: string[]): { ok: boolean; stdout: string } {
+function runGit(cwd: string, args: string[]): { ok: boolean; stdout: string; stderr: string } {
   try {
     const stdout = execFileSync("git", ["-C", cwd, ...args], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       maxBuffer: 32 * 1024 * 1024,
     });
-    return { ok: true, stdout };
-  } catch {
-    return { ok: false, stdout: "" };
+    return { ok: true, stdout, stderr: "" };
+  } catch (err) {
+    const stderr =
+      typeof (err as { stderr?: unknown })?.stderr === "string"
+        ? ((err as { stderr: string }).stderr).trim()
+        : err instanceof Error
+          ? err.message
+          : String(err);
+    return { ok: false, stdout: "", stderr };
   }
 }
 
@@ -111,6 +117,10 @@ export function computeWorkspaceFingerprint(cwd: string): WorkspaceFingerprint {
   const head = headRes.ok ? headRes.stdout.trim() : "UNBORN";
 
   const statusRes = runGit(cwd, ["status", "--porcelain=v1", "-z", "-uall"]);
+  const statusError = statusRes.ok
+    ? undefined
+    : statusRes.stderr || "git status failed";
+  const errorNonce = statusError ? crypto.randomUUID() : undefined;
   const parsed = statusRes.ok ? parseGitPorcelainZ(statusRes.stdout) : [];
   parsed.sort((a, b) => a.path.localeCompare(b.path));
 
@@ -125,10 +135,12 @@ export function computeWorkspaceFingerprint(cwd: string): WorkspaceFingerprint {
 
   const digest = crypto
     .createHash("sha256")
-    .update(JSON.stringify({ is_git: true, head, entries }))
+    .update(JSON.stringify({ is_git: true, head, entries, errorNonce }))
     .digest("hex");
 
-  return { digest, is_git: true, head, entries, computed_at };
+  return statusError
+    ? { digest, is_git: true, head, entries, computed_at, status_error: statusError }
+    : { digest, is_git: true, head, entries, computed_at };
 }
 
 export function diffFingerprints(
@@ -136,6 +148,9 @@ export function diffFingerprints(
   post: WorkspaceFingerprint,
   cwd: string
 ): string[] {
+  if (pre.status_error || post.status_error) {
+    return [];
+  }
   const changed = new Set<string>();
 
   const allPaths = new Set([...Object.keys(pre.entries), ...Object.keys(post.entries)]);

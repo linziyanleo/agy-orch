@@ -26,6 +26,7 @@ import {
 } from "./paths.ts";
 import { applyDispositions } from "./schema-validate.ts";
 import {
+  createTaskExclusive,
   loadRun,
   loadTask,
   refreshRunFreshness,
@@ -173,6 +174,31 @@ function prepareRun(opts: StartRunOptions):
     timeout_sec: opts.timeout_sec,
   });
 
+  const taskId = opts.task_id?.trim() || makeId("task");
+  const existingTask = loadTask(taskId);
+  if (existingTask) {
+    const mismatchKind = opts.resume ? "resume_error" : "invalid_parameter";
+    const mismatchPrefix = opts.resume ? "--resume " : "";
+    if (existingTask.cwd !== baseCwd) {
+      return {
+        ok: false,
+        error: makeErrorResult(
+          mismatchKind,
+          `${mismatchPrefix}cwd mismatch for task '${taskId}': expected '${existingTask.cwd}', got '${baseCwd}'`
+        ),
+      };
+    }
+    if (existingTask.backend !== resolved.backend) {
+      return {
+        ok: false,
+        error: makeErrorResult(
+          mismatchKind,
+          `${mismatchPrefix}backend mismatch for task '${taskId}': expected '${existingTask.backend}', got '${resolved.backend}'`
+        ),
+      };
+    }
+  }
+
   if (!resolved.backend_profile) {
     return {
       ok: false,
@@ -200,8 +226,6 @@ function prepareRun(opts: StartRunOptions):
     };
   }
 
-  const taskId = opts.task_id?.trim() || makeId("task");
-  const existingTask = loadTask(taskId);
   let resumeSessionId: string | null = null;
 
   if (opts.resume) {
@@ -209,24 +233,6 @@ function prepareRun(opts: StartRunOptions):
       return {
         ok: false,
         error: makeErrorResult("resume_error", `No stored task state found for task_id '${taskId}'`),
-      };
-    }
-    if (existingTask.cwd !== baseCwd) {
-      return {
-        ok: false,
-        error: makeErrorResult(
-          "resume_error",
-          `--resume cwd mismatch for task '${taskId}': expected '${existingTask.cwd}', got '${baseCwd}'`
-        ),
-      };
-    }
-    if (existingTask.backend !== resolved.backend) {
-      return {
-        ok: false,
-        error: makeErrorResult(
-          "resume_error",
-          `--resume backend mismatch for task '${taskId}': expected '${existingTask.backend}', got '${resolved.backend}'`
-        ),
       };
     }
     if (!existingTask.backend_session_id) {
@@ -351,7 +357,6 @@ function prepareRun(opts: StartRunOptions):
   const task: TaskRecord = existingTask
     ? {
         ...existingTask,
-        backend: resolved.backend,
         round,
         max_rounds: resolved.max_rounds,
         latest_run_id: runId,
@@ -371,14 +376,49 @@ function prepareRun(opts: StartRunOptions):
         updated_at: now,
       };
 
+  let persistedTask = task;
+  if (existingTask) {
+    saveTask(persistedTask);
+  } else {
+    const created = createTaskExclusive(persistedTask);
+    if (!created.created) {
+      const raced = created.existing;
+      if (raced && (raced.cwd !== baseCwd || raced.backend !== resolved.backend)) {
+        if (lockAcquired) {
+          releaseWriterLock(effectiveCwd, runId);
+        }
+        const field = raced.cwd !== baseCwd ? "cwd" : "backend";
+        const expected = field === "cwd" ? raced.cwd : raced.backend;
+        const got = field === "cwd" ? baseCwd : resolved.backend;
+        return {
+          ok: false,
+          error: makeErrorResult(
+            opts.resume ? "resume_error" : "invalid_parameter",
+            `Concurrent ${field} mismatch for task '${taskId}': expected '${expected}', got '${got}'`
+          ),
+        };
+      }
+      if (raced) {
+        persistedTask = {
+          ...raced,
+          round: computeNextRound(opts.command, raced),
+          max_rounds: resolved.max_rounds,
+          latest_run_id: runId,
+          run_ids: [...raced.run_ids, runId],
+          updated_at: now,
+        };
+        run.round = persistedTask.round;
+      }
+      saveTask(persistedTask);
+    }
+  }
   saveRun(run);
-  saveTask(task);
 
   return {
     ok: true,
     ctx: {
       run,
-      task,
+      task: persistedTask,
       packet,
       prompt,
       schemaPath,
@@ -390,6 +430,7 @@ function prepareRun(opts: StartRunOptions):
 
 async function finishRunContext(ctx: PreparedRunContext): Promise<RunRecord> {
   const { run, task, packet, prompt, schemaPath, backendDiscovered, lockAcquired } = ctx;
+  let cancelledByCaller = false;
 
   try {
     const execRes = await executeBackend({
@@ -417,7 +458,9 @@ async function finishRunContext(ctx: PreparedRunContext): Promise<RunRecord> {
         latest.pgid = pgid;
         saveRun(latest);
         if (lockAcquired) {
-          updateWriterLockPid(run.effective_cwd, run.run_id, pid, pgid);
+          // Keep the coordinator/worker PID as lock owner until post-run snapshot & release finish;
+          // store the backend PGID separately so stale-lock recovery still covers orphan child groups.
+          updateWriterLockPid(run.effective_cwd, run.run_id, process.pid, pgid);
         }
       },
     });
@@ -425,6 +468,8 @@ async function finishRunContext(ctx: PreparedRunContext): Promise<RunRecord> {
     // Re-read run in case `cancel` updated it while backend was shutting down.
     const latestRun = loadRun(run.run_id) ?? run;
     if (latestRun.execution_status === "cancelled") {
+      // Leave lock release to cancelRun so cleanup and post-snapshot finish before another writer enters.
+      cancelledByCaller = true;
       return latestRun;
     }
 
@@ -449,10 +494,25 @@ async function finishRunContext(ctx: PreparedRunContext): Promise<RunRecord> {
       saveRun(latestRun);
       if (latestRun.backend_session_id) {
         const latestTask = loadTask(task.task_id) ?? task;
-        latestTask.backend_session_id = latestRun.backend_session_id;
-        latestTask.updated_at = new Date().toISOString();
-        saveTask(latestTask);
+        if (latestTask.cwd === run.cwd && latestTask.backend === run.backend) {
+          latestTask.backend_session_id = latestRun.backend_session_id;
+          latestTask.updated_at = new Date().toISOString();
+          saveTask(latestTask);
+        }
       }
+      return latestRun;
+    }
+
+    const snapshotError = postFingerprint.status_error ?? run.pre_fingerprint.status_error;
+    if (snapshotError) {
+      latestRun.execution_status = "failed";
+      latestRun.acceptance_status = "blocked";
+      latestRun.failure_kind = "git_error";
+      latestRun.failure_message = `Workspace snapshot failed: ${snapshotError}`;
+      latestRun.freshness_status = "invalid_boundary";
+      latestRun.verdict_valid = false;
+      latestRun.parsed_output = execRes.parsed_output;
+      saveRun(latestRun);
       return latestRun;
     }
 
@@ -516,15 +576,17 @@ async function finishRunContext(ctx: PreparedRunContext): Promise<RunRecord> {
     saveRun(latestRun);
 
     const latestTask = loadTask(task.task_id) ?? task;
-    if (latestRun.backend_session_id) {
-      latestTask.backend_session_id = latestRun.backend_session_id;
+    if (latestTask.cwd === run.cwd && latestTask.backend === run.backend) {
+      if (latestRun.backend_session_id) {
+        latestTask.backend_session_id = latestRun.backend_session_id;
+      }
+      latestTask.updated_at = new Date().toISOString();
+      saveTask(latestTask);
     }
-    latestTask.updated_at = new Date().toISOString();
-    saveTask(latestTask);
 
     return latestRun;
   } finally {
-    if (lockAcquired) {
+    if (lockAcquired && !cancelledByCaller) {
       releaseWriterLock(run.effective_cwd, run.run_id);
     }
   }
@@ -549,11 +611,12 @@ export async function runExecutionCommand(opts: StartRunOptions): Promise<{
       lockAcquired: ctx.lockAcquired,
     };
     const metaPath = path.join(getRunsDir(), `${ctx.run.run_id}.worker.json`);
+    const readyPath = path.join(getRunsDir(), `${ctx.run.run_id}.ready`);
     fs.writeFileSync(metaPath, `${JSON.stringify(workerMeta, null, 2)}\n`, "utf8");
 
     const worker = spawn(
       process.execPath,
-      [CLI_ENTRYPOINT, "_run-worker", "--run-id", ctx.run.run_id],
+      [CLI_ENTRYPOINT, "_run-worker", "--run-id", ctx.run.run_id, "--await-ready"],
       {
         cwd: ctx.run.effective_cwd,
         detached: true,
@@ -570,6 +633,8 @@ export async function runExecutionCommand(opts: StartRunOptions): Promise<{
         updateWriterLockPid(ctx.run.effective_cwd, ctx.run.run_id, worker.pid, worker.pid);
       }
     }
+    // Signal worker only after parent has finished persisting worker identity and lock owner.
+    fs.writeFileSync(readyPath, "1\n", "utf8");
     worker.unref();
     return { ok: true, run: ctx.run };
   }
@@ -579,7 +644,15 @@ export async function runExecutionCommand(opts: StartRunOptions): Promise<{
   return { ok: succeeded, run: finalRun };
 }
 
-export async function runDetachedWorker(runId: string): Promise<number> {
+export async function runDetachedWorker(runId: string, awaitReady = false): Promise<number> {
+  if (awaitReady) {
+    const readyPath = path.join(getRunsDir(), `${runId}.ready`);
+    const deadline = Date.now() + 2000;
+    while (!fs.existsSync(readyPath) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    fs.rmSync(readyPath, { force: true });
+  }
   const run = loadRun(runId);
   if (!run) return 1;
   const metaPath = path.join(getRunsDir(), `${runId}.worker.json`);
@@ -599,7 +672,7 @@ export async function runDetachedWorker(runId: string): Promise<number> {
     cwd: run.cwd,
     role: run.role,
     backend: run.backend,
-    model: run.model,
+    model: run.model ?? undefined,
     effort: run.effort ?? undefined,
     timeout_sec: run.timeout_sec,
     max_rounds: run.max_rounds,

@@ -18,16 +18,19 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Run unit and CLI E2E tests
+      - name: Run unit, CLI E2E, and CommonJS packaging tests
         run: npm test
 
-      - name: Validate CLI entrypoint and JSON profiles
+      - name: Validate CLI entrypoint, manifests, and JSON profiles
         run: |
           node skills/agy-orch/scripts/agy-orch.mjs help >/dev/null
           node skills/agy-orch/scripts/agy-orch.mjs backends >/dev/null
           node -e '
             const fs = require("node:fs");
             const path = require("node:path");
+            for (const file of ["plugin.json", "skills/agy-orch/package.json"]) {
+              JSON.parse(fs.readFileSync(file, "utf8"));
+            }
             for (const dir of ["skills/agy-orch/backends", "skills/agy-orch/schemas", "skills/agy-orch/evals"]) {
               for (const f of fs.readdirSync(dir)) {
                 if (f.endsWith(".json")) JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));

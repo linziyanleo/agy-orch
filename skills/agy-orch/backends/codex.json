@@ -13,8 +13,6 @@
     "worktree": true
   },
   "defaults": {
-    "model": "gpt-6.2-sol",
-    "effort": "high",
     "timeout_sec": 900
   },
   "exec": {

@@ -44,7 +44,8 @@ function parseArgs(argv: string[]): ParsedArgs {
       key === "worktree" ||
       key === "background" ||
       key === "json" ||
-      key === "help"
+      key === "help" ||
+      key === "await-ready"
     ) {
       flags[key] = true;
       continue;
@@ -128,7 +129,7 @@ export async function main(argv: string[]): Promise<void> {
   if (cmd === "_run-worker") {
     const runId = getStrFlag(flags, "run-id");
     if (!runId) process.exit(1);
-    const code = await runDetachedWorker(runId);
+    const code = await runDetachedWorker(runId, getBoolFlag(flags, "await-ready"));
     process.exit(code);
   }
 
