@@ -1,0 +1,40 @@
+{
+  "name": "agy",
+  "display_name": "Antigravity CLI",
+  "active": false,
+  "binary": "agy",
+  "output_protocol": "jsonl-generic",
+  "capabilities": {
+    "model": true,
+    "effort": true,
+    "sandbox": true,
+    "resume": true,
+    "output_schema": true,
+    "worktree": false
+  },
+  "defaults": {
+    "model": "gemini-4",
+    "effort": "high",
+    "timeout_sec": 900
+  },
+  "exec": {
+    "base_args": ["-p", "--output-format", "stream-json", "--disable-slash-commands", "--sandbox"],
+    "model_flag": "--model",
+    "effort_mode": "flag",
+    "effort_flag": "--effort",
+    "sandbox_flag": "--mode",
+    "sandbox_map": {
+      "read-only": "plan",
+      "workspace-write": "accept-edits",
+      "danger-full-access": "auto"
+    },
+    "output_schema_flag": "--json-schema",
+    "prompt_mode": "arg"
+  },
+  "resume": {
+    "supported": true,
+    "session_mode": "flag",
+    "session_flag": "--conversation",
+    "never_use_last": true
+  }
+}

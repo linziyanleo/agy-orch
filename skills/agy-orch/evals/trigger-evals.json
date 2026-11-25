@@ -1,0 +1,82 @@
+[
+  {
+    "query": "我刚改完 src/auth/session.ts 和 src/middleware/requireAuth.ts 里的 token 刷新逻辑，帮我用 codex 做一轮只读代码审查，重点查并发刷新竞态和权限绕过。",
+    "should_trigger": true
+  },
+  {
+    "query": "准备重构订单退款状态机，涉及 src/orders/refund.ts、src/db/transactions.ts 和两个 webhook 处理器，先出方案并让外部审阅者过一遍有没有遗漏约束。",
+    "should_trigger": true
+  },
+  {
+    "query": "CheckoutSubmitButton.tsx 点快了会重复下单，而且老请求报错会把新请求成功提示盖掉，帮我修一下并让第二个模型复核前端状态竞态。",
+    "should_trigger": true
+  },
+  {
+    "query": "Codex 刚才审完提出要给单接口加一个通用的重试中间件和插件注册表，还要修一个空的空指针判断，帮我筛选哪些属于过度设计、哪些必须改。",
+    "should_trigger": true
+  },
+  {
+    "query": "把后台接口限流器的实现委派给 codex 来改，限制只能动 src/rate-limit/ 目录和对应测试，别碰数据库迁移文件。",
+    "should_trigger": true
+  },
+  {
+    "query": "我同时有两个独立需求 task-billing 和 task-export 要改同一个仓库，怎么开隔离 worktree 避免写冲突，并在改完后重新校验之前审查结果是否过期？",
+    "should_trigger": true
+  },
+  {
+    "query": "刚才跑一半的后台 delegate 任务卡住了，需要 cancel 掉并确认子进程没有残留，同时看看磁盘上已经改了哪些文件再决定怎么收尾。",
+    "should_trigger": true
+  },
+  {
+    "query": "请用 agy-orch 把现有的计划拆成 handoff packet 让 reviewer 看一下，模型用默认的，reasoning effort 设为 xhigh，最多讨论两轮。",
+    "should_trigger": true
+  },
+  {
+    "query": "我想把默认的代码执行后端从 codex 切到 qodercli，或者给安全审阅单独配一个 claude-code 角色，不改 ~/.codex/config.toml 该怎么配？",
+    "should_trigger": true
+  },
+  {
+    "query": "上一轮 review-changes 让我补了权限校验代码，现在改完了，帮我恢复刚才那个任务的 Codex 会话继续复审而不是重开新上下文。",
+    "should_trigger": true
+  },
+  {
+    "query": "把首页顶部导航栏按钮的 padding 从 8px 调成 12px，顺便把圆角改成 6px，只改 src/components/Header.css。",
+    "should_trigger": false
+  },
+  {
+    "query": "登录弹窗里的错误提示文案“密码不正确”改成“账号或密码有误，请重新输入”，只改文案常量文件。",
+    "should_trigger": false
+  },
+  {
+    "query": "帮我把 README.md 里的错别字改一下，再补充一行本地启动端口说明。",
+    "should_trigger": false
+  },
+  {
+    "query": "给卡片列表加一个桌面端三列、移动端单列的 CSS Grid 响应式排版，纯样式调整不涉及任何接口或状态逻辑。",
+    "should_trigger": false
+  },
+  {
+    "query": "解释一下 JavaScript 里的 AbortController 和 Promise.race 在取消请求时有什么区别？",
+    "should_trigger": false
+  },
+  {
+    "query": "帮我运行一下当前仓库的单元测试 npm test，看看有没有用例挂掉，不需要改代码也不需要找外部代理。",
+    "should_trigger": false
+  },
+  {
+    "query": "我想用 /grill-me 梳理一下新产品需求的用户故事和界面草图，还没开始写代码也不需要调用 Codex。",
+    "should_trigger": false
+  },
+  {
+    "query": "查看一下当前 git status 和最近 5 条 git log，告诉我工作区有哪些未提交文件。",
+    "should_trigger": false
+  },
+  {
+    "query": "把 src/assets/logo.svg 里的默认填充颜色改成 #0f172a。",
+    "should_trigger": false
+  },
+  {
+    "query": "对比一下 PostgreSQL 的悲观锁和乐观锁在文档描述上怎么写更通俗，我只是在写技术博客。",
+    "should_trigger": false
+  }
+]

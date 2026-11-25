@@ -1,0 +1,29 @@
+name: Bug Report
+description: Report a bug in agy-orch runtime, CLI, or skill workflow
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the unexpected behavior and include exact JSON output if applicable.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include the command, handoff packet shape (redacted), and flags used.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      value: |
+        - Node.js version:
+        - OS:
+        - Backend CLI & version (e.g. codex-cli):
+        - Entrypoint (agy CLI / Antigravity App / standalone):
+    validations:
+      required: true

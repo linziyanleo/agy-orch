@@ -1,0 +1,38 @@
+{
+  "name": "claude-code",
+  "display_name": "Claude Code CLI",
+  "active": false,
+  "binary": "claude",
+  "output_protocol": "jsonl-generic",
+  "capabilities": {
+    "model": true,
+    "effort": true,
+    "sandbox": true,
+    "resume": true,
+    "output_schema": true,
+    "worktree": false
+  },
+  "defaults": {
+    "timeout_sec": 900
+  },
+  "exec": {
+    "base_args": ["-p", "--output-format", "stream-json", "--verbose"],
+    "model_flag": "--model",
+    "effort_mode": "flag",
+    "effort_flag": "--effort",
+    "sandbox_flag": "--permission-mode",
+    "sandbox_map": {
+      "read-only": "plan",
+      "workspace-write": "acceptEdits",
+      "danger-full-access": "bypassPermissions"
+    },
+    "output_schema_flag": "--json-schema",
+    "prompt_mode": "arg"
+  },
+  "resume": {
+    "supported": true,
+    "session_mode": "flag",
+    "session_flag": "--resume",
+    "never_use_last": true
+  }
+}

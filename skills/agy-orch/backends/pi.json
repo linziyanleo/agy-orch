@@ -1,0 +1,37 @@
+{
+  "name": "pi",
+  "display_name": "Pi Coding Agent",
+  "active": false,
+  "binary": "pi",
+  "output_protocol": "jsonl-generic",
+  "capabilities": {
+    "model": true,
+    "effort": true,
+    "sandbox": true,
+    "resume": true,
+    "output_schema": false,
+    "worktree": false
+  },
+  "defaults": {
+    "timeout_sec": 900
+  },
+  "exec": {
+    "base_args": ["-p", "--mode", "json"],
+    "model_flag": "--model",
+    "effort_mode": "flag",
+    "effort_flag": "--thinking",
+    "sandbox_flag": "--tools",
+    "sandbox_map": {
+      "read-only": "read,grep,find,ls",
+      "workspace-write": "read,bash,edit,write",
+      "danger-full-access": "read,bash,edit,write"
+    },
+    "prompt_mode": "arg"
+  },
+  "resume": {
+    "supported": true,
+    "session_mode": "flag",
+    "session_flag": "--session",
+    "never_use_last": true
+  }
+}

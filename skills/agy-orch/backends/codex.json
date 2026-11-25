@@ -1,0 +1,44 @@
+{
+  "name": "codex",
+  "display_name": "OpenAI Codex CLI",
+  "active": true,
+  "binary": "codex",
+  "output_protocol": "codex-jsonl",
+  "capabilities": {
+    "model": true,
+    "effort": true,
+    "sandbox": true,
+    "resume": true,
+    "output_schema": true,
+    "worktree": true
+  },
+  "defaults": {
+    "model": "gpt-6.2-sol",
+    "effort": "high",
+    "timeout_sec": 900
+  },
+  "exec": {
+    "base_args": ["exec", "--json", "--skip-git-repo-check"],
+    "model_flag": "-m",
+    "effort_mode": "codex-config",
+    "effort_flag": "-c",
+    "effort_config_key": "model_reasoning_effort",
+    "sandbox_flag": "-s",
+    "sandbox_map": {
+      "read-only": "read-only",
+      "workspace-write": "workspace-write",
+      "danger-full-access": "danger-full-access"
+    },
+    "cwd_flag": "-C",
+    "output_schema_flag": "--output-schema",
+    "output_last_message_flag": "-o",
+    "prompt_mode": "stdin-dash"
+  },
+  "resume": {
+    "supported": true,
+    "subcommand": ["exec", "resume"],
+    "pre_subcommand_flags": ["-C", "-s"],
+    "session_mode": "positional-before-prompt",
+    "never_use_last": true
+  }
+}

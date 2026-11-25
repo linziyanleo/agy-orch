@@ -1,0 +1,60 @@
+{
+  "skill_name": "agy-orch",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "把按钮主色调改成 #2563eb 并把文案从“提交”改成“确认提交”，只改 src/styles/button.css 和文案常量。",
+      "expected_output": "Run agy-orch triage, observe decision=skip_heavy_flow and risk_level=trivial, edit directly in lead session without invoking review-plan, delegate, or review-changes.",
+      "files": [],
+      "expectations": [
+        "triage command returns decision === 'skip_heavy_flow' and recommended_commands.length === 0",
+        "Zero review-plan, delegate, or review-changes runs are created in agy-orch state",
+        "The CSS and copy edit completes directly without spawning Codex"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "用户反馈结账页连续点击提交会发两次请求，且先发的失败响应会覆盖后发请求的状态。请修改提交逻辑并让 Codex 审查前端状态竞态与边界缺陷。",
+      "expected_output": "Run triage (use_agy_orch), send complete handoff packet with verbatim original_request, acceptance_criteria, constraints, non_goals, relevant_files to review-changes (read-only sandbox), catch the real_defect with concrete evidence, trigger, impact, and minimal_fix, and keep workspace tree untouched during review.",
+      "files": [],
+      "expectations": [
+        "Handoff packet includes non-empty original_request, goal, acceptance_criteria, constraints, non_goals, and relevant_files",
+        "review-changes executes with sandbox === 'read-only' and pre_fingerprint.digest === post_fingerprint.digest",
+        "review-changes returns execution_status === 'completed' with >= 1 finding of category === 'real_defect' having non-empty evidence, trigger, impact, and minimal_fix (insufficient_evidence !== true)"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "审查邀请码兑换模块改动，Codex 返回了 1 条真实并发缺陷（缺少条件更新防重）和 2 条过度设计建议（引入全局事件总线、增加指数退避重试队列）。请做裁决并验证 2 轮上限约束。",
+      "expected_output": "Lead runs dispose rejecting optional_polish and speculative engineering_tradeoff with explicit reason while requiring minimal_fix for the real_defect; hitting max_rounds=2 with an unresolved real_defect keeps acceptance_status === 'blocked' and never auto-approves.",
+      "files": [],
+      "expectations": [
+        "dispose marks optional_polish and justified engineering_tradeoff as blocking_after === false without blocking acceptance",
+        "Substantiated real_defect cannot be dismissed via reject_overdesign (accepted === false, blocking_after === true)",
+        "When round >= max_rounds (2) and >= 1 real_defect or requirement_gap remains unresolved, dispose returns acceptance_status === 'blocked' and unresolved_blocking_ids.length >= 1"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "同时推进 task-a 和 task-b 两个独立任务，分别恢复各自之前的 Codex 会话继续修改；如果同一目录已有 delegate 在写则提示冲突或使用 --worktree 隔离；在 review-changes 通过后手动改一行代码并核验 verdict 失效。",
+      "expected_output": "task-a and task-b maintain separate backend_session_id values and --resume uses explicit --task-id (never --last); concurrent delegate in same cwd fails with writer_lock_held while --worktree isolates parallel write; post-review file edit causes check-freshness to mark verdict_valid === false and freshness_status === 'stale_by_code_change'.",
+      "files": [],
+      "expectations": [
+        "--resume without --task-id or with mismatched cwd/backend fails explicitly with failure_kind === 'resume_error' and never invokes --last",
+        "Concurrent delegate on the same cwd fails with failure_kind === 'writer_lock_held', whereas delegate --worktree succeeds in an isolated worktree",
+        "Modifying a tracked or untracked workspace file after review-changes causes check-freshness to return verdict_valid === false, freshness_status === 'stale_by_code_change', and acceptance_status === 'stale'"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "启动一个慢速后台任务后中途 cancel，以及跑一个超过 --timeout-sec 阈值的部分写入任务，在决定恢复方案前核对进程清理和磁盘实际修改文件。",
+      "expected_output": "cancel and timeout terminate the entire child process group (-pgid SIGTERM -> 2s -> SIGKILL) leaving 0 orphan processes, capture exact post_fingerprint and changed_files (marking execution_status === 'partial' when timeout occurs after file edits, or 'cancelled' on cancel), and report changed_files before any retry.",
+      "files": [],
+      "expectations": [
+        "cancel returns kill_result.dead === true, execution_status === 'cancelled', failure_kind === 'cancelled', and 0 live child processes remain for the recorded pid/pgid",
+        "Timeout after modifying >= 1 file records execution_status === 'partial' (or 'timed_out' when 0 files changed), failure_kind === 'timed_out', and exact paths in changed_files",
+        "verdict_valid === false on both cancelled and timed_out/partial runs so callers inspect changed_files before recovery"
+      ]
+    }
+  ]
+}

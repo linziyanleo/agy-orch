@@ -1,0 +1,292 @@
+{
+  "skill_name": "agy-orch",
+  "graded_at": "2026-11-25T06:52:01.968Z",
+  "verification_workspace": "/tmp/agy-orch-e2e-verify",
+  "expectations": [
+    {
+      "text": "[eval-1] triage command returns decision === 'skip_heavy_flow' and recommended_commands.length === 0",
+      "passed": true,
+      "evidence": "triage returned decision='skip_heavy_flow', risk_level='trivial', recommended_commands=[]"
+    },
+    {
+      "text": "[eval-1] Zero review-plan, delegate, or review-changes runs are created in agy-orch state",
+      "passed": true,
+      "evidence": "agy-orch list on isolated Scenario 1 state dir returned 0 runs"
+    },
+    {
+      "text": "[eval-1] The CSS and copy edit completes directly without spawning Codex",
+      "passed": true,
+      "evidence": "Confirmed trivial style change on styles/button.css skips Codex invocation completely (0 runs created)"
+    },
+    {
+      "text": "[eval-2] Handoff packet includes non-empty original_request, goal, acceptance_criteria, constraints, non_goals, and relevant_files",
+      "passed": true,
+      "evidence": "packet-s2.json passed CLI boundary validation with original_request, goal, 4 acceptance_criteria, constraints, non_goals, and relevant_files"
+    },
+    {
+      "text": "[eval-2] review-changes executes with sandbox === 'read-only' and pre_fingerprint.digest === post_fingerprint.digest",
+      "passed": true,
+      "evidence": "Real Codex run run-2026-11-25T06-38-39-026Z-68b3fc (model=gpt-6.2-sol, effort=xhigh) ran in sandbox='read-only' with identical pre/post digest fd2bd2ab55c7... and changed_files=[]"
+    },
+    {
+      "text": "[eval-2] review-changes returns execution_status === 'completed' with >= 1 finding of category === 'real_defect' having non-empty evidence, trigger, impact, and minimal_fix (insufficient_evidence !== true)",
+      "passed": true,
+      "evidence": "Real Codex run run-2026-11-25T06-38-39-026Z-68b3fc completed with 3 substantiated real_defect findings (checkout-duplicate-submit, checkout-submit-stuck, checkout-stale-active-order) plus 1 requirement_gap (checkout-mutation-auth)"
+    },
+    {
+      "text": "[eval-3] dispose marks optional_polish and justified engineering_tradeoff as blocking_after === false without blocking acceptance",
+      "passed": true,
+      "evidence": "F4 (optional_polish) forced blocking=false and F3 (justified engineering_tradeoff) cleared with blocking_after=false; omitting reason on F3 stayed blocked ([\"F3\"])"
+    },
+    {
+      "text": "[eval-3] Substantiated real_defect cannot be dismissed via reject_overdesign (accepted === false, blocking_after === true)",
+      "passed": true,
+      "evidence": "Attempted reject_overdesign on substantiated real_defect F1 returned accepted=false, blocking_after=true, note='cannot auto-dismiss substantiated real_defect via reject_overdesign; must resolve via accept or minimal_fix'"
+    },
+    {
+      "text": "[eval-3] When round >= max_rounds (2) and >= 1 real_defect or requirement_gap remains unresolved, dispose returns acceptance_status === 'blocked' and unresolved_blocking_ids.length >= 1",
+      "passed": true,
+      "evidence": "Round 2 dispose (run-2026-11-25T06-48-58-006Z-3243c5) at round=2/2 returned acceptance_status='blocked' with unresolved_blocking_ids=[\"F1\"]"
+    },
+    {
+      "text": "[eval-4] --resume without --task-id or with mismatched cwd/backend fails explicitly with failure_kind === 'resume_error' and never invokes --last",
+      "passed": true,
+      "evidence": "task-a/task-b resumed sess-task-a/sess-task-b with zero --last flags; invalid resume cases returned resume_error; real Codex resume run-2026-11-25T06-45-51-129Z-8b4cad reused explicit thread_id 01a2116d-8704-75f3-ade4-53955ca1962b"
+    },
+    {
+      "text": "[eval-4] Concurrent delegate on the same cwd fails with failure_kind === 'writer_lock_held', whereas delegate --worktree succeeds in an isolated worktree",
+      "passed": true,
+      "evidence": "Concurrent delegate in same cwd failed with 'writer_lock_held', while --worktree completed in /private/tmp/agy-orch-e2e-state/det/state/worktrees/run-2026-11-25T06-49-01-291Z-dbc294"
+    },
+    {
+      "text": "[eval-4] Modifying a tracked or untracked workspace file after review-changes causes check-freshness to return verdict_valid === false, freshness_status === 'stale_by_code_change', and acceptance_status === 'stale'",
+      "passed": true,
+      "evidence": "check-freshness returned verdict_valid=false, freshness_status='stale_by_code_change', acceptance_status='stale' in both deterministic check (run-2026-11-25T06-48-59-260Z-2df839) and real Codex post-delegate check (run-2026-11-25T06-38-39-026Z-68b3fc)"
+    },
+    {
+      "text": "[eval-5] cancel returns kill_result.dead === true, execution_status === 'cancelled', failure_kind === 'cancelled', and 0 live child processes remain for the recorded pid/pgid",
+      "passed": true,
+      "evidence": "cancel on run-2026-11-25T06-49-00-568Z-e8ffc7 returned kill_result.dead=true, execution_status='cancelled', pgid_alive_after=false, grandchild pid 72730 dead, changed_files=[\"src/server/lock_partial.tmp.js\"]"
+    },
+    {
+      "text": "[eval-5] Timeout after modifying >= 1 file records execution_status === 'partial' (or 'timed_out' when 0 files changed), failure_kind === 'timed_out', and exact paths in changed_files",
+      "passed": true,
+      "evidence": "timeout on run-2026-11-25T06-49-02-415Z-241b46 returned execution_status='partial', failure_kind='timed_out', backend_session_id='sess-timeout-123', changed_files=[\"src/server/timeout_partial.tmp.js\"], grandchild pid 73337 dead"
+    },
+    {
+      "text": "[eval-5] verdict_valid === false on both cancelled and timed_out/partial runs so callers inspect changed_files before recovery",
+      "passed": true,
+      "evidence": "verdict_valid is false on both cancelled (run-2026-11-25T06-49-00-568Z-e8ffc7) and timed_out/partial (run-2026-11-25T06-49-02-415Z-241b46) runs"
+    }
+  ],
+  "summary": {
+    "passed": 15,
+    "failed": 0,
+    "total": 15,
+    "pass_rate": 1
+  },
+  "eval_results": [
+    {
+      "eval_id": 1,
+      "prompt": "把按钮主色调改成 #2563eb 并把文案从“提交”改成“确认提交”，只改 src/styles/button.css 和文案常量。",
+      "verification_mode": "deterministic_cli_and_fault_injection",
+      "passed": 3,
+      "total": 3,
+      "pass_rate": 1,
+      "expectations": [
+        {
+          "eval_id": 1,
+          "text": "triage command returns decision === 'skip_heavy_flow' and recommended_commands.length === 0",
+          "passed": true,
+          "evidence": "triage returned decision='skip_heavy_flow', risk_level='trivial', recommended_commands=[]"
+        },
+        {
+          "eval_id": 1,
+          "text": "Zero review-plan, delegate, or review-changes runs are created in agy-orch state",
+          "passed": true,
+          "evidence": "agy-orch list on isolated Scenario 1 state dir returned 0 runs"
+        },
+        {
+          "eval_id": 1,
+          "text": "The CSS and copy edit completes directly without spawning Codex",
+          "passed": true,
+          "evidence": "Confirmed trivial style change on styles/button.css skips Codex invocation completely (0 runs created)"
+        }
+      ]
+    },
+    {
+      "eval_id": 2,
+      "prompt": "用户反馈结账页连续点击提交会发两次请求，且先发的失败响应会覆盖后发请求的状态。请修改提交逻辑并让 Codex 审查前端状态竞态与边界缺陷。",
+      "verification_mode": "real_codex_model",
+      "passed": 3,
+      "total": 3,
+      "pass_rate": 1,
+      "expectations": [
+        {
+          "eval_id": 2,
+          "text": "Handoff packet includes non-empty original_request, goal, acceptance_criteria, constraints, non_goals, and relevant_files",
+          "passed": true,
+          "evidence": "packet-s2.json passed CLI boundary validation with original_request, goal, 4 acceptance_criteria, constraints, non_goals, and relevant_files"
+        },
+        {
+          "eval_id": 2,
+          "text": "review-changes executes with sandbox === 'read-only' and pre_fingerprint.digest === post_fingerprint.digest",
+          "passed": true,
+          "evidence": "Real Codex run run-2026-11-25T06-38-39-026Z-68b3fc (model=gpt-6.2-sol, effort=xhigh) ran in sandbox='read-only' with identical pre/post digest fd2bd2ab55c7... and changed_files=[]"
+        },
+        {
+          "eval_id": 2,
+          "text": "review-changes returns execution_status === 'completed' with >= 1 finding of category === 'real_defect' having non-empty evidence, trigger, impact, and minimal_fix (insufficient_evidence !== true)",
+          "passed": true,
+          "evidence": "Real Codex run run-2026-11-25T06-38-39-026Z-68b3fc completed with 3 substantiated real_defect findings (checkout-duplicate-submit, checkout-submit-stuck, checkout-stale-active-order) plus 1 requirement_gap (checkout-mutation-auth)"
+        }
+      ]
+    },
+    {
+      "eval_id": 3,
+      "prompt": "审查邀请码兑换模块改动，Codex 返回了 1 条真实并发缺陷（缺少条件更新防重）和 2 条过度设计建议（引入全局事件总线、增加指数退避重试队列）。请做裁决并验证 2 轮上限约束。",
+      "verification_mode": "deterministic_cli_and_fault_injection",
+      "passed": 3,
+      "total": 3,
+      "pass_rate": 1,
+      "expectations": [
+        {
+          "eval_id": 3,
+          "text": "dispose marks optional_polish and justified engineering_tradeoff as blocking_after === false without blocking acceptance",
+          "passed": true,
+          "evidence": "F4 (optional_polish) forced blocking=false and F3 (justified engineering_tradeoff) cleared with blocking_after=false; omitting reason on F3 stayed blocked ([\"F3\"])"
+        },
+        {
+          "eval_id": 3,
+          "text": "Substantiated real_defect cannot be dismissed via reject_overdesign (accepted === false, blocking_after === true)",
+          "passed": true,
+          "evidence": "Attempted reject_overdesign on substantiated real_defect F1 returned accepted=false, blocking_after=true, note='cannot auto-dismiss substantiated real_defect via reject_overdesign; must resolve via accept or minimal_fix'"
+        },
+        {
+          "eval_id": 3,
+          "text": "When round >= max_rounds (2) and >= 1 real_defect or requirement_gap remains unresolved, dispose returns acceptance_status === 'blocked' and unresolved_blocking_ids.length >= 1",
+          "passed": true,
+          "evidence": "Round 2 dispose (run-2026-11-25T06-48-58-006Z-3243c5) at round=2/2 returned acceptance_status='blocked' with unresolved_blocking_ids=[\"F1\"]"
+        }
+      ]
+    },
+    {
+      "eval_id": 4,
+      "prompt": "同时推进 task-a 和 task-b 两个独立任务，分别恢复各自之前的 Codex 会话继续修改；如果同一目录已有 delegate 在写则提示冲突或使用 --worktree 隔离；在 review-changes 通过后手动改一行代码并核验 verdict 失效。",
+      "verification_mode": "real_codex_and_deterministic_fault_injection",
+      "passed": 3,
+      "total": 3,
+      "pass_rate": 1,
+      "expectations": [
+        {
+          "eval_id": 4,
+          "text": "--resume without --task-id or with mismatched cwd/backend fails explicitly with failure_kind === 'resume_error' and never invokes --last",
+          "passed": true,
+          "evidence": "task-a/task-b resumed sess-task-a/sess-task-b with zero --last flags; invalid resume cases returned resume_error; real Codex resume run-2026-11-25T06-45-51-129Z-8b4cad reused explicit thread_id 01a2116d-8704-75f3-ade4-53955ca1962b"
+        },
+        {
+          "eval_id": 4,
+          "text": "Concurrent delegate on the same cwd fails with failure_kind === 'writer_lock_held', whereas delegate --worktree succeeds in an isolated worktree",
+          "passed": true,
+          "evidence": "Concurrent delegate in same cwd failed with 'writer_lock_held', while --worktree completed in /private/tmp/agy-orch-e2e-state/det/state/worktrees/run-2026-11-25T06-49-01-291Z-dbc294"
+        },
+        {
+          "eval_id": 4,
+          "text": "Modifying a tracked or untracked workspace file after review-changes causes check-freshness to return verdict_valid === false, freshness_status === 'stale_by_code_change', and acceptance_status === 'stale'",
+          "passed": true,
+          "evidence": "check-freshness returned verdict_valid=false, freshness_status='stale_by_code_change', acceptance_status='stale' in both deterministic check (run-2026-11-25T06-48-59-260Z-2df839) and real Codex post-delegate check (run-2026-11-25T06-38-39-026Z-68b3fc)"
+        }
+      ]
+    },
+    {
+      "eval_id": 5,
+      "prompt": "启动一个慢速后台任务后中途 cancel，以及跑一个超过 --timeout-sec 阈值的部分写入任务，在决定恢复方案前核对进程清理和磁盘实际修改文件。",
+      "verification_mode": "deterministic_cli_and_fault_injection",
+      "passed": 3,
+      "total": 3,
+      "pass_rate": 1,
+      "expectations": [
+        {
+          "eval_id": 5,
+          "text": "cancel returns kill_result.dead === true, execution_status === 'cancelled', failure_kind === 'cancelled', and 0 live child processes remain for the recorded pid/pgid",
+          "passed": true,
+          "evidence": "cancel on run-2026-11-25T06-49-00-568Z-e8ffc7 returned kill_result.dead=true, execution_status='cancelled', pgid_alive_after=false, grandchild pid 72730 dead, changed_files=[\"src/server/lock_partial.tmp.js\"]"
+        },
+        {
+          "eval_id": 5,
+          "text": "Timeout after modifying >= 1 file records execution_status === 'partial' (or 'timed_out' when 0 files changed), failure_kind === 'timed_out', and exact paths in changed_files",
+          "passed": true,
+          "evidence": "timeout on run-2026-11-25T06-49-02-415Z-241b46 returned execution_status='partial', failure_kind='timed_out', backend_session_id='sess-timeout-123', changed_files=[\"src/server/timeout_partial.tmp.js\"], grandchild pid 73337 dead"
+        },
+        {
+          "eval_id": 5,
+          "text": "verdict_valid === false on both cancelled and timed_out/partial runs so callers inspect changed_files before recovery",
+          "passed": true,
+          "evidence": "verdict_valid is false on both cancelled (run-2026-11-25T06-49-00-568Z-e8ffc7) and timed_out/partial (run-2026-11-25T06-49-02-415Z-241b46) runs"
+        }
+      ]
+    }
+  ],
+  "additional_verified_checks": {
+    "real_codex_delegate": {
+      "passed": true,
+      "run_id": "run-2026-11-25T06-43-00-091Z-2c3074",
+      "model": "gpt-6.2-sol",
+      "effort": "high",
+      "changed_files": [
+        "src/frontend/checkoutStore.js",
+        "tests/checkout.test.js"
+      ],
+      "repo_tests_after_fix": "10/10 pass"
+    },
+    "real_codex_resume": {
+      "passed": true,
+      "run_id": "run-2026-11-25T06-45-51-129Z-8b4cad",
+      "resumed_from_session_id": "01a2116d-8704-75f3-ade4-53955ca1962b"
+    },
+    "real_codex_invalid_model": {
+      "passed": true,
+      "failure_kind": "invalid_parameter"
+    },
+    "real_codex_invalid_effort": {
+      "passed": true,
+      "failure_kind": "invalid_parameter"
+    },
+    "boundary_violations": {
+      "delegate_oob": {
+        "execution_status": "failed",
+        "failure_kind": "boundary_violation",
+        "boundary_violation": true,
+        "boundary_violations": [
+          "styles/button.css"
+        ]
+      },
+      "readonly_mutate": {
+        "execution_status": "failed",
+        "failure_kind": "boundary_violation",
+        "boundary_violation": true,
+        "freshness_status": "invalid_boundary"
+      }
+    },
+    "agy_cli_skill_discovery": {
+      "passed": true,
+      "entrypoint": "agy CLI (-p --mode plan --output-format json)",
+      "conversation_id": "d89b56dc-2a85-48d3-88dd-155038929b01",
+      "skill_path": "~/.gemini/config/skills/agy-orch/SKILL.md"
+    },
+    "codex_config_unchanged": {
+      "passed": true,
+      "path": "~/.codex/config.toml",
+      "sha256": "f89df7945614dffce726001c39e6c081565b7a1dd1b75203551bf6b5d9bbac51",
+      "mtime": "2026-11-25 14:23:16"
+    }
+  },
+  "user_notes_summary": {
+    "uncertainties": [
+      "Antigravity Desktop App GUI entrypoint was not separately automated from headless terminal; skill discovery was verified through agy CLI.",
+      "Non-Codex backend profiles (agy, qodercli, pi, claude-code) were verified for discovery/flag alignment only, not full end-to-end real-model runs."
+    ],
+    "needs_review": [],
+    "workarounds": []
+  }
+}

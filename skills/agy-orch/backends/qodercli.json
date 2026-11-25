@@ -1,0 +1,40 @@
+{
+  "name": "qodercli",
+  "display_name": "Qoder CLI",
+  "active": false,
+  "binary": "qodercli",
+  "output_protocol": "jsonl-generic",
+  "capabilities": {
+    "model": true,
+    "effort": true,
+    "sandbox": true,
+    "resume": true,
+    "output_schema": false,
+    "worktree": true
+  },
+  "defaults": {
+    "timeout_sec": 900
+  },
+  "exec": {
+    "base_args": ["-p", "-o", "stream-json", "--max-model-request-retries", "0"],
+    "model_flag": "-m",
+    "effort_mode": "flag",
+    "effort_flag": "--reasoning-effort",
+    "sandbox_flag": "--permission-mode",
+    "sandbox_map": {
+      "read-only": "dont_ask",
+      "workspace-write": "accept_edits",
+      "danger-full-access": "bypass_permissions"
+    },
+    "cwd_flag": "-w",
+    "prompt_mode": "arg",
+    "prompt_separator": "--"
+  },
+  "resume": {
+    "supported": true,
+    "pre_subcommand_flags": ["-w"],
+    "session_mode": "flag",
+    "session_flag": "-r",
+    "never_use_last": true
+  }
+}

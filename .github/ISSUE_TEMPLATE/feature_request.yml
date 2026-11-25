@@ -1,0 +1,16 @@
+name: Feature or Backend Request
+description: Propose an improvement or a new external agent backend profile
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What capability or backend CLI integration would you like?
+    validations:
+      required: true
+  - type: textarea
+    id: cli_details
+    attributes:
+      label: Backend CLI Flags & Output Format (if applicable)
+      description: Paste relevant `--help` flags for non-interactive mode, model/effort, sandbox, and JSONL output.

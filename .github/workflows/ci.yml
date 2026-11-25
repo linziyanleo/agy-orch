@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Run unit and CLI E2E tests
+        run: npm test
+
+      - name: Validate CLI entrypoint and JSON profiles
+        run: |
+          node skills/agy-orch/scripts/agy-orch.mjs help >/dev/null
+          node skills/agy-orch/scripts/agy-orch.mjs backends >/dev/null
+          node -e '
+            const fs = require("node:fs");
+            const path = require("node:path");
+            for (const dir of ["skills/agy-orch/backends", "skills/agy-orch/schemas", "skills/agy-orch/evals"]) {
+              for (const f of fs.readdirSync(dir)) {
+                if (f.endsWith(".json")) JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
+              }
+            }
+          '
+
+      - name: Validate SKILL.md frontmatter
+        run: |
+          python3 -c '
+            import re, json
+            from pathlib import Path
+            text = Path("skills/agy-orch/SKILL.md").read_text(encoding="utf-8")
+            m = re.match(r"^---\n(.*?)\n---", text, re.DOTALL)
+            assert m, "Missing YAML frontmatter"
+            fm = m.group(1)
+            assert "name: agy-orch" in fm, "Missing name: agy-orch"
+            assert "description:" in fm, "Missing description"
+            assert len(text.splitlines()) <= 500, "SKILL.md exceeds 500 lines"
+          '
