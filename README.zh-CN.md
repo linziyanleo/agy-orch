@@ -1,10 +1,18 @@
-# agy-orch
+<p align="center">
+  <img src="assets/logo.png" alt="agy-orch" width="128" />
+</p>
 
-[English](README.md) | [简体中文](README.zh-CN.md)
+<h1 align="center">agy-orch</h1>
 
-[![CI](https://github.com/linziyanleo/agy-orch/actions/workflows/ci.yml/badge.svg)](https://github.com/linziyanleo/agy-orch/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Node 24+](https://img.shields.io/badge/node-%3E%3D24.0.0-brightgreen.svg)](package.json)
+<p align="center">
+  <a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/linziyanleo/agy-orch/actions/workflows/ci.yml"><img src="https://github.com/linziyanleo/agy-orch/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
+  <a href="package.json"><img src="https://img.shields.io/badge/node-%3E%3D24.0.0-brightgreen.svg" alt="Node 24+" /></a>
+</p>
 
 在 Antigravity 里直接调本机 Codex 审方案、查 Bug、改局部代码。
 
