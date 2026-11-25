@@ -14,48 +14,55 @@
   <a href="package.json"><img src="https://img.shields.io/badge/node-%3E%3D24.0.0-brightgreen.svg" alt="Node 24+" /></a>
 </p>
 
-在 Antigravity 里直接调本机 Codex 审方案、查 Bug、改局部代码。
+在 Antigravity 里按需调用任意本机 CLI Agent 审方案、查 Bug、改局部代码，默认接入 Codex。
 
-Gemini 擅长界面、需求梳理和与你对齐方向，Codex 擅长抓并发竞态、鉴权漏洞和复杂逻辑缺陷。`agy-orch` 把两者接进同一个对话流程里：小改动直接走，复杂改动叫 Codex 上场，审完把过度设计拦掉，改完代码自动提醒复审。
+Antigravity 擅长界面、需求梳理和与你对齐方向，引入一个干净上下文的外部 Agent 更擅长抓并发竞态、鉴权漏洞和复杂逻辑缺陷。`agy-orch` 把外部 CLI Agent 接进同一个对话里：小改动直接改完，复杂改动再按需调用（默认 `codex`，也附带 `claude-code`、`qodercli`、`pi`、`agy` 或自定义 JSON Profile），审完拦掉过度设计，改完代码自动提醒复审。
 
 ```text
-Antigravity（Gemini）
+Antigravity
    |
-   +--> 改样式 / 改文案 -------------> Gemini 直接改完，不等 Codex
+   +--> 改样式 / 改文案 -------------> 直接改完，不调外部 Agent
    |
-   +--> 涉及状态 / 并发 / 鉴权 -------> 本机 Codex（review-plan / delegate / review-changes）
-                                           |
-                                           v
-                                      dispose 裁决
-                                （真 Bug 最小修复，过度设计直接驳回）
-                                           |
-                                           v
-                             改完代码 -> 旧结论自动失效 -> --resume 原会话复审
+   +--> 涉及状态 / 并发 / 鉴权 -------> 外部 Agent（默认 codex）
+                                       review-plan / delegate / review-changes
+                                                   |
+                                                   v
+                                              dispose 裁决
+                                        （真 Bug 最小修复，过度设计直接驳回）
+                                                   |
+                                                   v
+                                     改完代码 -> 旧结论自动失效 -> --resume 原会话复审
 ```
 
-## 为什么比直接写脚本调 Codex 好用
+复制下面这句发给你的 Agent 即可使用：
 
-- 小改动不拖节奏。`triage` 先看改动风险，调个按钮间距或文案直接留在 Gemini 里秒改，不会每次都等几分钟外部审阅。
-- 拦住审阅器的过度设计。干净上下文的模型很喜欢顺手建议加一套重试队列、插件抽象或大重构。`agy-orch` 要求每条意见必须给出具体 `file:line`、触发条件、影响和最小修复，再由 Gemini 走 `dispose` 逐条筛掉过度设计；同时对有实锤的缺陷卡死 2 轮上限，没修完绝不放行。
-- 多任务并行不串会话。直接用 `codex exec resume --last` 一旦开两个任务就会续到别的线程里。`agy-orch` 按 `task_id` 绑定独立的 `backend_session_id`，跨仓库复用同一 ID 会直接报错拦住。
+```text
+按 https://github.com/linziyanleo/agy-orch 的 README 帮我安装 agy-orch，然后运行 config init 和 backends 检查环境。
+```
+
+## 为什么比直接写脚本调外部 Agent 好用
+
+- 小改动不拖节奏。`triage` 先看改动风险，调个按钮间距或文案直接留在 Antigravity 里秒改，不会每次都等几分钟外部审阅。
+- 拦住审阅器的过度设计。干净上下文的外部 Agent 很喜欢顺手建议加一套重试队列、插件抽象或大重构。`agy-orch` 要求每条意见必须给出具体 `file:line`、触发条件、影响和最小修复，再由主 Agent 走 `dispose` 逐条筛掉过度设计；同时对有实锤的缺陷卡死 2 轮上限，没修完绝不放行。
+- 多任务并行不串会话。直接用 `--last` 续接（例如 `codex exec resume --last`）一旦开两个任务就会续到别的线程里。`agy-orch` 按 `task_id` 绑定独立的 `backend_session_id`，跨仓库复用同一 ID 会直接报错拦住。
 - 改完代码不会拿旧 LGTM 充数。`review-changes` 通过后只要工作区文件变了，`check-freshness` 立刻把旧审阅标成 `stale`，逼着拿最新代码复审。
-- 多路 Codex 可以并行写代码不打架。同一目录并发委派会撞写锁，加上 `--worktree` 就会各开独立 Git worktree 同时推进；中途取消或超时直接按进程组（`-pgid`）杀干净，不留孤儿进程。
-- 零第三方 npm 运行依赖。Node 24 直接跑，也不碰你的 `~/.codex/config.toml`。
+- 多路委派可以并行写代码不打架。同一目录并发委派会撞写锁，加上 `--worktree` 就会各开独立 Git worktree 同时推进；中途取消或超时直接按进程组（`-pgid`）杀干净，不留孤儿进程。
+- 零第三方 npm 运行依赖。Node 24 直接跑，也不改动你的本机后端配置（例如 `~/.codex/config.toml`）。
 
 ## 一次真实协作长什么样
 
-比如你修完结账页的重复提交 Bug，让 Antigravity 叫 Codex 查一遍：
+比如你修完结账页的重复提交 Bug，让 Antigravity 叫外部 Agent 查一遍（这里以默认 `codex` 后端为例）：
 
-1. Codex 在只读沙箱里看完 diff，返回两条结构化意见：
+1. 审阅 Agent 在只读沙箱里看完 diff，返回两条结构化意见：
    - `F1`（`real_defect`）：`src/checkout/submit.ts:24` 在参数校验之前就把 `inFlight` 置为 `true`，校验抛错后按钮会永久锁死。
    - `F2`（`engineering_tradeoff`）：建议抽一个通用的请求重试中间件。
-2. Gemini 执行 `dispose`：对 `F1` 采纳最小修复，对 `F2` 填理由驳回（`reject_overdesign`，单表单不需要引入重试层）。
+2. Antigravity 执行 `dispose`：对 `F1` 采纳最小修复，对 `F2` 填理由驳回（`reject_overdesign`，单表单不需要引入重试层）。
 3. 改完这 3 行代码后，`check-freshness` 自动把第 1 轮审阅标为失效（`stale_by_code_change`）。
-4. Gemini 带 `--resume` 续接刚才同一个 Codex 会话跑第 2 轮复审，确认问题已清干净后交付给你。
+4. Antigravity 带 `--resume` 续接刚才同一个后端会话跑第 2 轮复审，确认问题已清干净后交付给你。
 
 ## 安装
 
-环境要求：macOS 或 Linux、Node.js 24+、Git，以及已登录的本机 [Codex CLI](https://github.com/openai/codex)（`codex` 在 `PATH` 中可用）。
+环境要求：macOS 或 Linux、Node.js 24+、Git，以及至少一个本机已就绪的 CLI Agent（默认使用 [Codex CLI](https://github.com/openai/codex)，也支持其他已配置的后端）。
 
 ### 方式 1：Antigravity 插件安装
 
@@ -83,7 +90,7 @@ ln -s "$(pwd)/skills/agy-orch" ~/.gemini/config/skills/agy-orch
 
 </details>
 
-初始化用户配置（可选；默认留空 `model` 和 `effort`，直接沿用你本机 Codex 的默认模型）：
+初始化用户配置（可选；默认留空 `model` 和 `effort`，直接沿用对应后端 CLI 自己的默认模型）：
 
 ```bash
 SKILL_DIR="$HOME/.gemini/config/skills/agy-orch"
@@ -96,12 +103,12 @@ node "$SKILL_DIR/scripts/agy-orch.mjs" backends
 装完直接说人话就行：
 
 - “把 `src/styles/button.css` 里提交按钮的内边距调成 12px。”
-  分流跳过 Codex，Gemini 直接改完。
-- “我改了 `src/checkout/submit.ts` 防重复下单，叫 Codex 查一下有没有异步竞态或状态锁死。”
-  跑只读 `review-changes`，按 `file:line` 证据列出真实缺陷并过滤多余建议。
-- “先写退款状态机的改动方案，让 Codex 过一遍，需求外的抽象直接驳回。”
-  跑 `review-plan`，通过 `dispose` 保留真实缺口、驳回过度设计。
-- “把 `src/rate-limit/` 的限流修复派给 Codex 在独立 worktree 里改，别动我当前工作区。”
+  分流跳过外部审阅，Antigravity 直接改完。
+- “我改了 `src/checkout/submit.ts` 防重复下单，叫外部 Agent 查一下有没有异步竞态或状态锁死。”
+  用默认 `codex` 后端跑只读 `review-changes`，按 `file:line` 证据列出真实缺陷并过滤多余建议。
+- “先写退款状态机的改动方案，用 `claude-code` 过一遍，需求外的抽象直接驳回。”
+  跑 `review-plan --backend claude-code`，通过 `dispose` 保留真实缺口、驳回过度设计。
+- “把 `src/rate-limit/` 的限流修复派出去在独立 worktree 里改，别动我当前工作区。”
   后台起 `start delegate --worktree`，跑完对照 `src/rate-limit/` 检查改动范围。
 
 ## 命令行直接调用
@@ -152,7 +159,7 @@ node "$SKILL_DIR/scripts/agy-orch.mjs" cancel --run-id "$RUN_ID"
 
 配置按从高到低生效：命令行参数（`--backend`、`--model`、`--effort`、`--timeout-sec`、`--role`）> 环境变量（`AGY_ORCH_*`）> 项目 `.agy-orch/config.json`（只读 `roles` 和 `defaults`，忽略二进制与命令覆写）> `~/.config/agy-orch/config.json` > 内置后端配置。切换后端时会自动丢弃原后端的 `model` 和 `effort`；要覆盖后端默认超时，直接配角色级 `timeout_sec` 或传 `--timeout-sec`。
 
-目前围绕 `codex` 做了完整实测。仓库里也附带了 `agy`、`qodercli`、`pi`、`claude-code` 的实验性 JSON Profile（`skills/agy-orch/backends/`），或者直接在 `~/.config/agy-orch/backends/<name>.json` 接入你自己的 CLI。
+默认后端为 `codex`，已完成完整端到端实测。仓库里也附带了 `claude-code`、`qodercli`、`pi`、`agy` 的实验性 JSON Profile（`skills/agy-orch/backends/`），可以用 `--backend` 或角色配置随时切换，也可以直接在 `~/.config/agy-orch/backends/<name>.json` 接入任意本机 CLI Agent。
 
 更多参考：
 - 交接包与输出 Schema：[handoff-and-schemas.md](skills/agy-orch/references/handoff-and-schemas.md)

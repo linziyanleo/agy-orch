@@ -2,14 +2,14 @@
   "name": "agy-orch",
   "displayName": "agy-orch",
   "version": "0.1.0",
-  "description": "Call Codex from Antigravity to review plans, catch bugs, and run scoped fixes while skipping trivial edits and rejecting overdesign.",
+  "description": "Call any CLI agent you need from Antigravity (Codex by default) to review plans, catch bugs, and run scoped fixes while skipping trivial edits and rejecting overdesign.",
   "logo": "assets/logo.png",
   "author": "Ziyan Lin",
   "homepage": "https://github.com/linziyanleo/agy-orch",
   "repository": "https://github.com/linziyanleo/agy-orch",
   "suggestedPrompts": [
-    "Decide whether this change needs a Codex review.",
-    "Ask Codex to review the current diff without editing files.",
-    "Delegate this bug fix to Codex and limit edits to the affected files."
+    "Decide whether this change needs an external agent review.",
+    "Ask a second agent to review the current diff without editing files.",
+    "Delegate this bug fix in a separate worktree and limit edits to the affected files."
   ]
 }
