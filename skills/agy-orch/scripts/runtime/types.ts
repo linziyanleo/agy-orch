@@ -263,6 +263,27 @@ export interface RunRecord {
   last_message_path: string;
 }
 
+export interface RunLiveActivity {
+  event_count: number;
+  truncated: boolean;
+  last_event_type: string | null;
+  last_item_type: string | null;
+  summary: string;
+  updated_at: string;
+}
+
+export interface SwarmPostPayload {
+  run_id: string;
+  task_id: string;
+  command: CommandKind;
+  backend: string;
+  model: string | null;
+  effort: string | null;
+  execution_status: ExecutionStatus;
+  acceptance_status: AcceptanceStatus;
+  post: string;
+}
+
 export interface TaskRecord {
   task_id: string;
   cwd: string;

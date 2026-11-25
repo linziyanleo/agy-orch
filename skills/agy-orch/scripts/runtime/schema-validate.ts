@@ -186,6 +186,26 @@ export function validateDelegateOutput(
   };
 }
 
+export function getUnresolvedBlockingFindings(
+  findings: Finding[],
+  dispositions: FindingDispositionRecord[]
+): Finding[] {
+  const blockingByFinding = new Map<string, boolean[]>();
+  for (const record of dispositions) {
+    const key = `${record.category}:${record.finding_id}`;
+    const occurrences = blockingByFinding.get(key) ?? [];
+    occurrences.push(record.blocking_after);
+    blockingByFinding.set(key, occurrences);
+  }
+  return findings.filter((finding) =>
+    blockingByFinding.get(`${finding.category}:${finding.id}`)?.shift() ?? (
+      finding.category === "real_defect" ||
+      finding.category === "requirement_gap" ||
+      finding.blocking === true
+    )
+  );
+}
+
 export function applyDispositions(
   run: RunRecord,
   decisions: FindingDispositionInput[]
@@ -226,21 +246,10 @@ export function applyDispositions(
   }
 
   const records: FindingDispositionRecord[] = [];
-  const unresolvedBlockingIds: string[] = [];
 
   for (const finding of findings) {
     const decision = decisionMap.get(finding.id);
-
-    if (!decision) {
-      const stillBlocking =
-        finding.category === "real_defect" ||
-        finding.category === "requirement_gap" ||
-        finding.blocking;
-      if (stillBlocking) {
-        unresolvedBlockingIds.push(finding.id);
-      }
-      continue;
-    }
+    if (!decision) continue;
 
     const reason = decision.reason?.trim() ?? "";
     let blockingAfter = false;
@@ -293,10 +302,6 @@ export function applyDispositions(
       }
     }
 
-    if (blockingAfter) {
-      unresolvedBlockingIds.push(finding.id);
-    }
-
     records.push({
       finding_id: finding.id,
       action: decision.action,
@@ -308,6 +313,7 @@ export function applyDispositions(
     });
   }
 
+  const unresolvedBlockingIds = getUnresolvedBlockingFindings(findings, records).map((finding) => finding.id);
   let acceptance_status: AcceptanceStatus;
   if (
     run.freshness_status === "invalid_boundary" ||

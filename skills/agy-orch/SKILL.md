@@ -17,7 +17,7 @@ AGY_ORCH="$SKILL_DIR/scripts/agy-orch.mjs"
 node "$AGY_ORCH" help
 ```
 
-All commands print structured JSON to stdout. Inspect available backends and effective configuration before starting work:
+Commands print structured JSON to stdout by default. Inspect available backends and effective configuration before starting work:
 
 ```bash
 node "$AGY_ORCH" backends
@@ -94,6 +94,12 @@ node "$AGY_ORCH" result --task-id feat-auth
 node "$AGY_ORCH" list --cwd "$REPO" --limit 20
 node "$AGY_ORCH" cancel --run-id "$RUN_ID"
 ```
+
+## Swarm Bridge
+
+In Antigravity `/swarm`, assign a native proxy member to run `start` and keep the returned `run_id`. Poll `status --run-id "$RUN_ID"` in short, separate tool calls. Use `live_activity.summary` as the next call's `toolSummary`.
+
+When the run ends, format a board update with `swarm-post --run-id "$RUN_ID" --mention "$LEAD" --done --raw` and send it with native `post_message`. See [Swarm bridge proxy briefs](references/swarm-bridge.md) for reviewer and implementer templates.
 
 ## Anti-Overdesign Disposition Protocol
 

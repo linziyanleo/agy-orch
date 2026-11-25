@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { spawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 import { killProcessGroup } from "./lock.ts";
 import { validateDelegateOutput, validateReviewOutput } from "./schema-validate.ts";
 import type {
@@ -274,6 +275,8 @@ export async function executeBackend(opts: BackendExecOptions): Promise<BackendE
 
   let rawStdout = "";
   let rawStderr = "";
+  const stdoutDecoder = new StringDecoder("utf8");
+  const stderrDecoder = new StringDecoder("utf8");
   let timedOut = false;
   let timeoutKillResult: { dead: boolean; escalated_to_sigkill: boolean } | null = null;
 
@@ -292,15 +295,13 @@ export async function executeBackend(opts: BackendExecOptions): Promise<BackendE
   }
 
   child.stdout.on("data", (chunk: Buffer) => {
-    const text = chunk.toString("utf8");
-    rawStdout += text;
-    eventsStream.write(text);
+    eventsStream.write(chunk);
+    rawStdout += stdoutDecoder.write(chunk);
   });
 
   child.stderr.on("data", (chunk: Buffer) => {
-    const text = chunk.toString("utf8");
-    rawStderr += text;
-    stderrStream.write(text);
+    stderrStream.write(chunk);
+    rawStderr += stderrDecoder.write(chunk);
   });
 
   if (
@@ -341,6 +342,8 @@ export async function executeBackend(opts: BackendExecOptions): Promise<BackendE
     });
 
     child.on("close", async (code, signal) => {
+      rawStdout += stdoutDecoder.end();
+      rawStderr += stderrDecoder.end();
       clearTimeout(timer);
       if (!settled) {
         settled = true;

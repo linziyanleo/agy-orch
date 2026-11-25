@@ -14,6 +14,7 @@ import {
   runExecutionCommand,
 } from "./runner.ts";
 import { listRuns, refreshRunFreshness, saveRun } from "./store.ts";
+import { formatSwarmPost, inspectRunActivity } from "./swarm.ts";
 import { triageTask } from "./triage.ts";
 import type { CommandKind, FindingDispositionInput } from "./types.ts";
 
@@ -45,6 +46,8 @@ function parseArgs(argv: string[]): ParsedArgs {
       key === "background" ||
       key === "json" ||
       key === "help" ||
+      key === "done" ||
+      key === "raw" ||
       key === "await-ready"
     ) {
       flags[key] = true;
@@ -110,6 +113,7 @@ function usage() {
       "start <review-plan|delegate|review-changes> [flags...]",
       "status --run-id <id> | --task-id <id>",
       "result --run-id <id> | --task-id <id>",
+      "swarm-post (--run-id <id> | --task-id <id>) [--mention <name>] [--done] [--raw]",
       "cancel --run-id <id>",
       "list [--task-id <id>] [--cwd <dir>] [--limit <n>]",
       "check-freshness --task-id <id> [--run-id <id>]",
@@ -237,7 +241,7 @@ export async function main(argv: string[]): Promise<void> {
     printJson(run, exitCode);
   }
 
-  if (cmd === "status" || cmd === "result") {
+  if (cmd === "status" || cmd === "result" || cmd === "swarm-post") {
     const run = resolveRunByIdOrTask({
       run_id: getStrFlag(flags, "run-id"),
       task_id: getStrFlag(flags, "task-id"),
@@ -251,12 +255,28 @@ export async function main(argv: string[]): Promise<void> {
       const prevAcc = run.acceptance_status;
       refreshRunFreshness(run);
       if (
-        run.freshness_status !== prevFresh ||
-        run.verdict_valid !== prevValid ||
-        run.acceptance_status !== prevAcc
+        cmd !== "swarm-post" && (
+          run.freshness_status !== prevFresh ||
+          run.verdict_valid !== prevValid ||
+          run.acceptance_status !== prevAcc
+        )
       ) {
         saveRun(run);
       }
+    }
+    if (cmd === "swarm-post") {
+      const payload = formatSwarmPost(run, {
+        mention: getStrFlag(flags, "mention"),
+        done: getBoolFlag(flags, "done"),
+      });
+      if (getBoolFlag(flags, "raw")) {
+        process.stdout.write(`${payload.post}\n`);
+        return;
+      }
+      printJson(payload, 0);
+    }
+    if (cmd === "status") {
+      printJson({ ...run, live_activity: inspectRunActivity(run.raw_events_path) }, 0);
     }
     printJson(run, 0);
   }
