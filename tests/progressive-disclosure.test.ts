@@ -8,6 +8,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import {
   computeFindingCounts,
   formatCancelView,
+  formatResultDetailView,
+  formatResultSummaryView,
   formatStatusView,
   readEventsTail,
   readStderrTail,
@@ -131,6 +133,67 @@ if (mode === "wait") {
       { type: "turn.completed" }
     ))});
   }, 15);
+} else if (mode === "review_multi") {
+  const payload = {
+    verdict: "changes_requested",
+    summary: "Found defect and polish",
+    findings: [
+      {
+        id: "F1",
+        category: "real_defect",
+        blocking: true,
+        title: "Real defect F1",
+        evidence: "src/form.ts:1 missing guard",
+        trigger: "Double click",
+        impact: "Duplicate submit",
+        minimal_fix: "Add lock",
+        files: ["src/form.ts"]
+      },
+      {
+        id: "F1",
+        category: "optional_polish",
+        blocking: true,
+        title: "Polish with same ID",
+        evidence: "src/form.ts:1 style",
+        trigger: "Reading",
+        impact: "Minor",
+        minimal_fix: "Add doc",
+        files: ["src/form.ts"]
+      },
+      {
+        id: "F2",
+        category: "engineering_tradeoff",
+        blocking: false,
+        title: "Extract helper",
+        evidence: "src/form.ts:1",
+        trigger: "Future reuse",
+        impact: "Low",
+        minimal_fix: "Refactor",
+        files: ["src/form.ts"]
+      }
+    ]
+  };
+  fs.writeSync(1, ${JSON.stringify(jsonl(
+    { type: "thread.started", thread_id: "thread-rev-multi" },
+    { type: "turn.started" }
+  ))});
+  fs.writeSync(1, JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify(payload) } }) + "\\n");
+  fs.writeSync(1, JSON.stringify({ type: "turn.completed" }) + "\\n");
+} else if (mode === "delegate_many") {
+  fs.writeFileSync("src/form.ts", "export const x = 2;\\n");
+  const payload = {
+    status: "completed",
+    summary: "Updated many files",
+    modified_files: Array.from({ length: 25 }, (_, i) => "f-" + i + ".ts"),
+    tests_run: Array.from({ length: 12 }, (_, i) => "test-" + i),
+    open_issues: Array.from({ length: 12 }, (_, i) => "issue-" + i)
+  };
+  fs.writeSync(1, JSON.stringify({ type: "thread.started", thread_id: "thread-del-many" }) + "\\n");
+  fs.writeSync(1, JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify(payload) } }) + "\\n");
+  fs.writeSync(1, JSON.stringify({ type: "turn.completed" }) + "\\n");
+} else if (mode === "fail_stderr") {
+  fs.writeSync(2, "fatal mock failure\\n");
+  process.exit(1);
 }
 `,
     { mode: 0o755 }
@@ -501,4 +564,264 @@ test("CLI start, status, cancel slim vs --full, tails, and flag validation", asy
   assert.ok(JSON.stringify(largeStatus.data, null, 2).length > 65536);
   assert.equal(largeStatus.data.stderr_tail.line_count, 500);
   assert.equal(largeStatus.data.stderr_tail.lines[499].startsWith("err-499-"), true);
+});
+
+test("formatResultSummaryView and formatResultDetailView enforce caps, queue order, and duplicate-ID filtering", () => {
+  const fDefect: Finding = {
+    id: "F1",
+    category: "real_defect",
+    blocking: true,
+    title: "Real defect F1",
+    evidence: "ev-defect",
+    trigger: "trig-defect",
+    impact: "imp-defect",
+    minimal_fix: "fix-defect",
+    files: ["a.ts"],
+  };
+  const fPolish: Finding = {
+    id: "F1",
+    category: "optional_polish",
+    blocking: false,
+    title: "Polish F1",
+    evidence: "ev-polish",
+    trigger: "trig-polish",
+    impact: "imp-polish",
+    minimal_fix: "fix-polish",
+    files: ["a.ts"],
+  };
+  const fTradeoff: Finding = {
+    id: "F2",
+    category: "engineering_tradeoff",
+    blocking: false,
+    title: "Tradeoff F2",
+    evidence: "ev-tradeoff",
+    trigger: "trig-tradeoff",
+    impact: "imp-tradeoff",
+    minimal_fix: "fix-tradeoff",
+    files: ["b.ts"],
+  };
+  const baseRun = makeRun({
+    parsed_output: {
+      verdict: "changes_requested",
+      summary: "Review summary",
+      findings: [fDefect, fPolish, fTradeoff],
+    },
+  });
+  const disp = applyDispositions(baseRun, [
+    { finding_id: "F1", action: "defer" },
+    { finding_id: "F2", action: "defer", reason: "out of scope" },
+  ]);
+  assert.equal(disp.ok, true);
+  if (!disp.ok) return;
+
+  const run = { ...baseRun, dispositions: disp.dispositions };
+  const summary = formatResultSummaryView(run);
+  assert.equal("live_activity" in summary, false);
+  assert.equal("dispositions" in summary, false);
+  assert.equal(summary.disclosure_level, "summary");
+  assert.equal(summary.dispositions_count, 3);
+  assert.equal(summary.finding_counts?.unresolved_blocking, 1);
+  assert.ok(summary.details_omitted.includes("dispositions"));
+  assert.ok(summary.details_omitted.includes("parsed_output.findings[].evidence"));
+
+  if (!("findings" in summary.parsed_output!)) assert.fail("expected review summary");
+  assert.equal(summary.parsed_output.findings[0].unresolved_blocking, true);
+  assert.equal(summary.parsed_output.findings[0].disposition?.blocking_after, true);
+  assert.equal(summary.parsed_output.findings[1].blocking, false);
+  assert.equal(summary.parsed_output.findings[1].unresolved_blocking, false);
+  assert.equal(summary.parsed_output.findings[1].disposition?.blocking_after, false);
+  assert.equal("evidence" in summary.parsed_output.findings[0], false);
+
+  // --blocking-only must select ONLY F1 real_defect and its disposition, NOT F1 optional_polish
+  const blockingDetail = formatResultDetailView(run, { blockingOnly: true });
+  assert.equal(blockingDetail.ok, true);
+  if (!blockingDetail.ok) return;
+  assert.equal(blockingDetail.view.disclosure_level, "detail");
+  assert.equal(blockingDetail.view.matched_count, 1);
+  assert.equal(blockingDetail.view.total_findings, 3);
+  assert.equal(blockingDetail.view.parsed_output.findings.length, 1);
+  assert.equal(blockingDetail.view.parsed_output.findings[0].category, "real_defect");
+  assert.equal(blockingDetail.view.parsed_output.findings[0].evidence, "ev-defect");
+  assert.equal(blockingDetail.view.dispositions.length, 1);
+  assert.equal(blockingDetail.view.dispositions[0].category, "real_defect");
+  assert.ok(blockingDetail.view.details_omitted.includes("parsed_output.findings"));
+  assert.ok(blockingDetail.view.details_omitted.includes("dispositions"));
+
+  // Intersection: --finding F1 --category optional_polish
+  const catDetail = formatResultDetailView(run, {
+    findingIds: ["F1"],
+    categories: ["optional_polish"],
+  });
+  assert.equal(catDetail.ok, true);
+  if (!catDetail.ok) return;
+  assert.equal(catDetail.view.matched_count, 1);
+  assert.equal(catDetail.view.parsed_output.findings[0].category, "optional_polish");
+  assert.equal(catDetail.view.dispositions[0].category, "optional_polish");
+
+  // Unknown finding ID fails
+  const badId = formatResultDetailView(run, { findingIds: ["F999"] });
+  assert.equal(badId.ok, false);
+
+  // Delegate run rejected for detail view, capped for summary view
+  const delRun = makeRun({
+    command: "delegate",
+    parsed_output: {
+      status: "completed",
+      summary: "Done",
+      modified_files: Array.from({ length: 25 }, (_, i) => `m-${i}.ts`),
+      tests_run: Array.from({ length: 12 }, (_, i) => `t-${i}`),
+      open_issues: Array.from({ length: 12 }, (_, i) => `i-${i}`),
+    },
+  });
+  assert.equal(formatResultDetailView(delRun, { blockingOnly: true }).ok, false);
+  const delSummary = formatResultSummaryView(delRun);
+  assert.equal("live_activity" in delSummary, false);
+  if (!delSummary.parsed_output || "findings" in delSummary.parsed_output) {
+    assert.fail("expected delegate summary");
+  }
+  assert.equal(delSummary.parsed_output.modified_files.length, 20);
+  assert.equal(delSummary.parsed_output.modified_files_count, 25);
+  assert.equal(delSummary.parsed_output.tests_run.length, 10);
+  assert.equal(delSummary.parsed_output.tests_run_count, 12);
+  assert.equal(delSummary.parsed_output.open_issues.length, 10);
+  assert.equal(delSummary.parsed_output.open_issues_count, 12);
+  assert.ok(delSummary.details_omitted.includes("parsed_output.modified_files"));
+  assert.ok(delSummary.details_omitted.includes("parsed_output.tests_run"));
+  assert.ok(delSummary.details_omitted.includes("parsed_output.open_issues"));
+
+  // Shell-quote finding ID in next_actions only when it contains whitespace or metacharacters
+  const quotedRun = makeRun({
+    parsed_output: {
+      verdict: "changes_requested",
+      summary: "Odd ID",
+      findings: [{ ...fDefect, id: "F 1'x" }],
+    },
+  });
+  const quotedSummary = formatResultSummaryView(quotedRun);
+  assert.ok(quotedSummary.next_actions.some((a) => a.includes("--finding 'F 1'\\''x'")));
+  assert.ok(summary.next_actions.some((a) => a.endsWith("--finding F1")));
+});
+
+test("CLI result, synchronous commands, drill-down flags, --full, and negative validation", (t) => {
+  const ctx = setupCliFixture(t);
+
+  // Synchronous review-changes defaults to summary view and preserves exit code 0
+  const rev = ctx.runCli(
+    ["review-changes", "--cwd", ctx.repoDir, "--task-id", "t-rev-sum", "--packet", ctx.packetPath],
+    { MOCK_MODE: "review_multi" }
+  );
+  assert.equal(rev.code, 0);
+  assert.equal(rev.data.disclosure_level, "summary");
+  assert.equal("live_activity" in rev.data, false);
+  assert.equal(rev.data.parsed_output.findings.length, 3);
+  assert.equal(rev.data.parsed_output.findings[1].blocking, false);
+  assert.equal("evidence" in rev.data.parsed_output.findings[0], false);
+
+  // Dispose F1 with defer: real_defect stays unresolved blocking while optional_polish is deferred
+  const disp = ctx.runCli([
+    "dispose",
+    "--run-id",
+    rev.data.run_id,
+    "--decisions",
+    JSON.stringify([{ finding_id: "F1", action: "defer" }]),
+  ]);
+  assert.equal(disp.code, 0);
+
+  // result --blocking-only shows only F1 real_defect with full fields and its disposition
+  const blockingRes = ctx.runCli(["result", "--run-id", rev.data.run_id, "--blocking-only"]);
+  assert.equal(blockingRes.code, 0);
+  assert.equal(blockingRes.data.disclosure_level, "detail");
+  assert.equal(blockingRes.data.matched_count, 1);
+  assert.equal(blockingRes.data.parsed_output.findings[0].category, "real_defect");
+  assert.equal(blockingRes.data.parsed_output.findings[0].evidence, "src/form.ts:1 missing guard");
+  assert.equal(blockingRes.data.dispositions.length, 1);
+  assert.equal(blockingRes.data.dispositions[0].category, "real_defect");
+
+  // result --finding F1,F2 --category engineering_tradeoff
+  const filteredRes = ctx.runCli([
+    "result",
+    "--run-id",
+    rev.data.run_id,
+    "--finding",
+    "F1,F2",
+    "--category",
+    "engineering_tradeoff",
+  ]);
+  assert.equal(filteredRes.code, 0);
+  assert.equal(filteredRes.data.matched_count, 1);
+  assert.equal(filteredRes.data.parsed_output.findings[0].id, "F2");
+
+  // result --full returns full RunRecord without live_activity, with optional tails
+  const fullRes = ctx.runCli(["result", "--run-id", rev.data.run_id, "--events-tail", "2", "--full"]);
+  assert.equal(fullRes.code, 0);
+  assert.equal("disclosure_level" in fullRes.data, false);
+  assert.equal("live_activity" in fullRes.data, false);
+  assert.ok("entries" in fullRes.data.pre_fingerprint);
+  assert.equal(fullRes.data.events_tail.exists, true);
+
+  // Synchronous delegate defaults to summary view with capped lists; --full returns full RunRecord
+  const delSum = ctx.runCli(
+    ["delegate", "--cwd", ctx.repoDir, "--task-id", "t-del-sum", "--packet", ctx.packetPath],
+    { MOCK_MODE: "delegate_many" }
+  );
+  assert.equal(delSum.code, 0);
+  assert.equal(delSum.data.disclosure_level, "summary");
+  assert.equal(delSum.data.parsed_output.modified_files.length, 20);
+  assert.equal(delSum.data.parsed_output.modified_files_count, 25);
+
+  const delFull = ctx.runCli(
+    ["delegate", "--cwd", ctx.repoDir, "--task-id", "t-del-full", "--packet", ctx.packetPath, "--full"],
+    { MOCK_MODE: "delegate_many" }
+  );
+  assert.equal(delFull.code, 0);
+  assert.equal("disclosure_level" in delFull.data, false);
+  assert.equal(delFull.data.parsed_output.modified_files.length, 25);
+
+  // Failing synchronous run preserves exit code 1 in slim summary mode
+  const failSum = ctx.runCli(
+    ["review-plan", "--cwd", ctx.repoDir, "--task-id", "t-fail-sum", "--packet", ctx.packetPath],
+    { MOCK_MODE: "fail_stderr" }
+  );
+  assert.equal(failSum.code, 1);
+  assert.equal(failSum.data.disclosure_level, "summary");
+  assert.equal(failSum.data.execution_status, "failed");
+
+  // Negative CLI validation on result
+  const badCases = [
+    ["result", "--run-id", rev.data.run_id, "--finding"],
+    ["result", "--run-id", rev.data.run_id, "--finding="],
+    ["result", "--run-id", rev.data.run_id, "--finding", "UNKNOWN"],
+    ["result", "--run-id", rev.data.run_id, "--category"],
+    ["result", "--run-id", rev.data.run_id, "--category="],
+    ["result", "--run-id", rev.data.run_id, "--category", "bogus_cat"],
+    ["result", "--run-id", rev.data.run_id, "--full", "--blocking-only"],
+    ["result", "--run-id", rev.data.run_id, "--full", "--finding", "F1"],
+    ["result", "--run-id", delSum.data.run_id, "--blocking-only"],
+    ["result", "--run-id", failSum.data.run_id, "--finding", "F1"],
+    ["start", "review-changes", "--cwd", ctx.repoDir, "--packet", ctx.packetPath, "--blocking-only"],
+    ["review-plan", "--cwd", ctx.repoDir, "--packet", ctx.packetPath, "--finding", "F1"],
+    ["delegate", "--cwd", ctx.repoDir, "--packet", ctx.packetPath, "--category", "real_defect"],
+    ["review-changes", "--cwd", ctx.repoDir, "--packet", ctx.packetPath, "--blocking-only"],
+    ["swarm-post", "--run-id", rev.data.run_id, "--finding", "F1"],
+    ["cancel", "--run-id", rev.data.run_id, "--blocking-only"],
+  ];
+  for (const args of badCases) {
+    const res = ctx.runCli(args);
+    assert.equal(res.code, 1, `Expected exit 1 for ${args.join(" ")}`);
+    assert.equal(res.data.ok, false);
+  }
+
+  // cancel with --blocking-only must exit 1 BEFORE cancelling a running job
+  const runningJob = makeRun({
+    run_id: "run-still-running",
+    task_id: "task-still-running",
+    execution_status: "running",
+    ended_at: null,
+  });
+  const runningJobFile = path.join(ctx.stateDir, "runs", `${runningJob.run_id}.json`);
+  fs.writeFileSync(runningJobFile, JSON.stringify(runningJob));
+  const rejectedCancel = ctx.runCli(["cancel", "--run-id", runningJob.run_id, "--blocking-only"]);
+  assert.equal(rejectedCancel.code, 1);
+  assert.equal(rejectedCancel.data.ok, false);
+  assert.equal(JSON.parse(fs.readFileSync(runningJobFile, "utf8")).execution_status, "running");
 });

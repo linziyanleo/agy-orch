@@ -7,6 +7,8 @@ import {
 } from "./config.ts";
 import {
   formatCancelView,
+  formatResultDetailView,
+  formatResultSummaryView,
   formatStatusView,
   readEventsTail,
   readStderrTail,
@@ -22,7 +24,14 @@ import {
 import { listRuns, refreshRunFreshness, saveRun } from "./store.ts";
 import { formatSwarmPost, inspectRunActivity } from "./swarm.ts";
 import { triageTask } from "./triage.ts";
-import type { CommandKind, FindingDispositionInput } from "./types.ts";
+import type { CommandKind, FindingCategory, FindingDispositionInput } from "./types.ts";
+
+const VALID_FINDING_CATEGORIES = new Set<FindingCategory>([
+  "requirement_gap",
+  "real_defect",
+  "engineering_tradeoff",
+  "optional_polish",
+]);
 
 interface ParsedArgs {
   positional: string[];
@@ -55,7 +64,8 @@ function parseArgs(argv: string[]): ParsedArgs {
       key === "done" ||
       key === "raw" ||
       key === "await-ready" ||
-      key === "full"
+      key === "full" ||
+      key === "blocking-only"
     ) {
       flags[key] = true;
       continue;
@@ -108,6 +118,45 @@ function parsePositiveIntFlag(
   return { ok: true, value: n };
 }
 
+function parseCsvFlag(
+  flags: Record<string, string | boolean>,
+  key: string
+): { ok: true; values: string[] | undefined } | { ok: false; error: string } {
+  const raw = flags[key];
+  if (raw === undefined) return { ok: true, values: undefined };
+  if (typeof raw !== "string") {
+    return { ok: false, error: `--${key} requires a comma-separated value` };
+  }
+  const values = Array.from(
+    new Set(
+      raw
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    )
+  );
+  if (values.length === 0) {
+    return { ok: false, error: `--${key} must not be empty` };
+  }
+  return { ok: true, values };
+}
+
+function parseCategoryFlag(
+  flags: Record<string, string | boolean>
+): { ok: true; values: FindingCategory[] | undefined } | { ok: false; error: string } {
+  const parsed = parseCsvFlag(flags, "category");
+  if (!parsed.ok || !parsed.values) return parsed as { ok: true; values: undefined } | { ok: false; error: string };
+  for (const cat of parsed.values) {
+    if (!VALID_FINDING_CATEGORIES.has(cat as FindingCategory)) {
+      return {
+        ok: false,
+        error: `Invalid category '${cat}'. Must be one of: requirement_gap, real_defect, engineering_tradeoff, optional_polish`,
+      };
+    }
+  }
+  return { ok: true, values: parsed.values as FindingCategory[] };
+}
+
 function writeStdout(text: string): Promise<void> {
   return new Promise<void>((resolve) => {
     process.stdout.write(text, () => resolve());
@@ -145,12 +194,12 @@ function usage() {
       "backends",
       "config show | resolve | init",
       "triage --summary <text> [--files <csv>] [--kind <style|copy|logic|arch|...>]",
-      "review-plan --packet <file|-> [--cwd <dir>] [--task-id <id>] [--role <role>] [--backend <name>] [--model <model>] [--effort <effort>] [--timeout-sec <n>] [--resume] [--background]",
-      "delegate --packet <file|-> [--cwd <dir>] [--task-id <id>] [--role <role>] [--backend <name>] [--model <model>] [--effort <effort>] [--timeout-sec <n>] [--resume] [--worktree] [--background]",
-      "review-changes --packet <file|-> [--cwd <dir>] [--task-id <id>] [--role <role>] [--backend <name>] [--model <model>] [--effort <effort>] [--timeout-sec <n>] [--resume] [--background]",
+      "review-plan --packet <file|-> [--cwd <dir>] [--task-id <id>] [--role <role>] [--backend <name>] [--model <model>] [--effort <effort>] [--timeout-sec <n>] [--resume] [--background] [--full]",
+      "delegate --packet <file|-> [--cwd <dir>] [--task-id <id>] [--role <role>] [--backend <name>] [--model <model>] [--effort <effort>] [--timeout-sec <n>] [--resume] [--worktree] [--background] [--full]",
+      "review-changes --packet <file|-> [--cwd <dir>] [--task-id <id>] [--role <role>] [--backend <name>] [--model <model>] [--effort <effort>] [--timeout-sec <n>] [--resume] [--background] [--full]",
       "start <review-plan|delegate|review-changes> [flags...] [--full]",
       "status (--run-id <id> | --task-id <id>) [--events-tail <n>] [--stderr-tail <n>] [--full]",
-      "result --run-id <id> | --task-id <id>",
+      "result (--run-id <id> | --task-id <id>) [--finding <csv>] [--blocking-only] [--category <csv>] [--events-tail <n>] [--stderr-tail <n>] [--full]",
       "swarm-post (--run-id <id> | --task-id <id>) [--mention <name>] [--done] [--raw]",
       "cancel --run-id <id> [--full]",
       "list [--task-id <id>] [--cwd <dir>] [--limit <n>]",
@@ -158,6 +207,19 @@ function usage() {
       "dispose --run-id <id> --decisions <json|@file|->",
     ],
   };
+}
+
+async function rejectResultFilterFlags(flags: Record<string, string | boolean>): Promise<void> {
+  if (
+    flags["finding"] !== undefined ||
+    flags["blocking-only"] !== undefined ||
+    flags["category"] !== undefined
+  ) {
+    return printJson(
+      { ok: false, error: "--finding, --blocking-only, and --category are only supported on 'result'" },
+      1
+    );
+  }
 }
 
 export async function main(argv: string[]): Promise<void> {
@@ -252,6 +314,7 @@ export async function main(argv: string[]): Promise<void> {
   }
 
   if (cmd === "start" || cmd === "review-plan" || cmd === "delegate" || cmd === "review-changes") {
+    await rejectResultFilterFlags(flags);
     const execCmd = (cmd === "start" ? positional[1] : cmd) as CommandKind | undefined;
     if (execCmd !== "review-plan" && execCmd !== "delegate" && execCmd !== "review-changes") {
       return printJson({ ok: false, error: "start requires <review-plan|delegate|review-changes>" }, 1);
@@ -283,21 +346,12 @@ export async function main(argv: string[]): Promise<void> {
     if (isBackground) {
       return printJson(formatStatusView(run, { includeLiveActivity: false }), exitCode);
     }
-    return printJson(run, exitCode);
+    return printJson(formatResultSummaryView(run), exitCode);
   }
 
   if (cmd === "status" || cmd === "result" || cmd === "swarm-post") {
-    if (cmd === "status") {
-      if (
-        flags["finding"] !== undefined ||
-        flags["blocking-only"] !== undefined ||
-        flags["category"] !== undefined
-      ) {
-        return printJson(
-          { ok: false, error: "--finding, --blocking-only, and --category are only supported on 'result'" },
-          1
-        );
-      }
+    if (cmd === "status" || cmd === "swarm-post") {
+      await rejectResultFilterFlags(flags);
     }
     const eventsTailLimit = parsePositiveIntFlag(flags, "events-tail");
     if (!eventsTailLimit.ok) {
@@ -306,6 +360,31 @@ export async function main(argv: string[]): Promise<void> {
     const stderrTailLimit = parsePositiveIntFlag(flags, "stderr-tail");
     if (!stderrTailLimit.ok) {
       return printJson({ ok: false, error: stderrTailLimit.error }, 1);
+    }
+
+    let findingIds: string[] | undefined;
+    let categories: FindingCategory[] | undefined;
+    const blockingOnly = getBoolFlag(flags, "blocking-only");
+    const isFull = getBoolFlag(flags, "full");
+    if (cmd === "result") {
+      const findingRes = parseCsvFlag(flags, "finding");
+      if (!findingRes.ok) {
+        return printJson({ ok: false, error: findingRes.error }, 1);
+      }
+      findingIds = findingRes.values;
+
+      const categoryRes = parseCategoryFlag(flags);
+      if (!categoryRes.ok) {
+        return printJson({ ok: false, error: categoryRes.error }, 1);
+      }
+      categories = categoryRes.values;
+
+      if (isFull && (findingIds !== undefined || blockingOnly || categories !== undefined)) {
+        return printJson(
+          { ok: false, error: "--full cannot be combined with --finding, --blocking-only, or --category" },
+          1
+        );
+      }
     }
 
     const run = resolveRunByIdOrTask({
@@ -341,17 +420,19 @@ export async function main(argv: string[]): Promise<void> {
       }
       return printJson(payload, 0);
     }
+
+    const eventsTail =
+      eventsTailLimit.value !== undefined
+        ? readEventsTail(run.raw_events_path, eventsTailLimit.value)
+        : undefined;
+    const stderrTail =
+      stderrTailLimit.value !== undefined
+        ? readStderrTail(run.stderr_path, stderrTailLimit.value)
+        : undefined;
+
     if (cmd === "status") {
       const liveActivity = inspectRunActivity(run.raw_events_path);
-      const eventsTail =
-        eventsTailLimit.value !== undefined
-          ? readEventsTail(run.raw_events_path, eventsTailLimit.value)
-          : undefined;
-      const stderrTail =
-        stderrTailLimit.value !== undefined
-          ? readStderrTail(run.stderr_path, stderrTailLimit.value)
-          : undefined;
-      if (getBoolFlag(flags, "full")) {
+      if (isFull) {
         return printJson(
           {
             ...run,
@@ -372,7 +453,33 @@ export async function main(argv: string[]): Promise<void> {
         0
       );
     }
-    return printJson(run, 0);
+
+    if (isFull) {
+      return printJson(
+        {
+          ...run,
+          ...(eventsTail !== undefined ? { events_tail: eventsTail } : {}),
+          ...(stderrTail !== undefined ? { stderr_tail: stderrTail } : {}),
+        },
+        0
+      );
+    }
+
+    if (findingIds !== undefined || blockingOnly || categories !== undefined) {
+      const detail = formatResultDetailView(run, {
+        findingIds,
+        blockingOnly,
+        categories,
+        eventsTail,
+        stderrTail,
+      });
+      if (!detail.ok) {
+        return printJson({ ok: false, error: detail.error }, 1);
+      }
+      return printJson(detail.view, 0);
+    }
+
+    return printJson(formatResultSummaryView(run, { eventsTail, stderrTail }), 0);
   }
 
   if (cmd === "check-freshness") {
@@ -412,6 +519,7 @@ export async function main(argv: string[]): Promise<void> {
   }
 
   if (cmd === "cancel") {
+    await rejectResultFilterFlags(flags);
     const runId = getStrFlag(flags, "run-id");
     if (!runId) {
       return printJson({ ok: false, error: "cancel requires --run-id" }, 1);
