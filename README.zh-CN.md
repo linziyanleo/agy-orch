@@ -153,6 +153,15 @@ node "$SKILL_DIR/scripts/agy-orch.mjs" status --task-id demo-worker-1
 node "$SKILL_DIR/scripts/agy-orch.mjs" cancel --run-id "$RUN_ID"
 ```
 
+CLI 默认采用渐进披露输出，避免把完整文件指纹明细和全部审阅字段一次塞进上下文：`start`、`status`、`cancel` 返回精简 `status` 视图（`output_summary` 与 `FingerprintSummary`），`result` 与同步执行命令默认返回 `summary` 视图（`finding_counts`、索引级 `findings`、`details_omitted` 与 `next_actions`）。需要时再按需下钻：
+
+```bash
+node "$SKILL_DIR/scripts/agy-orch.mjs" result --run-id "$RUN_ID" --blocking-only
+node "$SKILL_DIR/scripts/agy-orch.mjs" result --run-id "$RUN_ID" --finding F1,F2 --category real_defect
+node "$SKILL_DIR/scripts/agy-orch.mjs" result --run-id "$RUN_ID" --events-tail 20 --stderr-tail 40
+node "$SKILL_DIR/scripts/agy-orch.mjs" result --run-id "$RUN_ID" --full
+```
+
 隔离 worktree 放在 `${AGY_ORCH_STATE_DIR:-~/.local/state/agy-orch}/worktrees/<run_id>`，跑完可以用 `git -C "$WORKTREE_PATH" diff` 检查并合入，最后用 `git worktree remove "$WORKTREE_PATH"` 清理。
 
 ## 配置与扩展后端

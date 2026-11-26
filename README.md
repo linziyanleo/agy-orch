@@ -153,6 +153,15 @@ node "$SKILL_DIR/scripts/agy-orch.mjs" status --task-id demo-worker-1
 node "$SKILL_DIR/scripts/agy-orch.mjs" cancel --run-id "$RUN_ID"
 ```
 
+By default, CLI commands return progressive disclosure views rather than dumping full file-fingerprint maps or every finding field: `start`, `status`, and `cancel` return a slim `status` view (`output_summary` and `FingerprintSummary`), while `result` and synchronous execution commands return a `summary` view (`finding_counts`, index-only `findings`, `details_omitted`, and `next_actions`). Drill down on demand:
+
+```bash
+node "$SKILL_DIR/scripts/agy-orch.mjs" result --run-id "$RUN_ID" --blocking-only
+node "$SKILL_DIR/scripts/agy-orch.mjs" result --run-id "$RUN_ID" --finding F1,F2 --category real_defect
+node "$SKILL_DIR/scripts/agy-orch.mjs" result --run-id "$RUN_ID" --events-tail 20 --stderr-tail 40
+node "$SKILL_DIR/scripts/agy-orch.mjs" result --run-id "$RUN_ID" --full
+```
+
 Worktrees are created under `${AGY_ORCH_STATE_DIR:-~/.local/state/agy-orch}/worktrees/<run_id>` so you can inspect `git -C "$WORKTREE_PATH" diff`, apply changes back, and clean up with `git worktree remove "$WORKTREE_PATH"`.
 
 ## Configuration and backends

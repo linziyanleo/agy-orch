@@ -51,9 +51,16 @@ Omit `--worktree` for this brief. Each run with `--worktree` creates a fresh Git
 
 ## Short-step polling procedure
 
-- Call `node "$AGY_ORCH" status --run-id "$RUN_ID"` once in a short tool call. For the first call, set `toolSummary` to the Codex model and effort plus `Waiting for events`.
-- While `execution_status` is `running`, space checks by a few seconds. In each separate tool call, use the previous `live_activity.summary` alongside the Codex model and effort in `toolSummary`. When `live_activity` is `null`, keep `Waiting for events`.
+- Call `node "$AGY_ORCH" status --run-id "$RUN_ID"` once in a short tool call. `status` returns the slim `disclosure_level: "status"` view with `live_activity` (without `fingerprint.entries` or full `parsed_output`). For the first call, set `toolSummary` to the Codex model and effort plus `Waiting for events`.
+- While `execution_status` is `running`, space checks by a few seconds. In each separate tool call, use the previous `live_activity.summary` alongside the Codex model and effort in `toolSummary`. When `live_activity` is `null`, keep `Waiting for events`. Pass `--events-tail <n>` or `--stderr-tail <n>` (`1..500`) only when inspecting a stalled or failing run.
 - Keep each call well below Swarm's 10-minute `STUCK_MS` threshold. Separate calls expose progress in the Members tab. Avoid a single long shell loop.
 - When `execution_status` leaves `running`, run `node "$AGY_ORCH" swarm-post --run-id "$RUN_ID" --mention "$LEAD" --done --raw`. Pass the returned text to the native `post_message` tool. `[done]` marks the end of execution. The post reports acceptance separately.
 
-`status` inspects up to the last 64 KiB of the run's JSONL log. `live_activity.updated_at` comes from the log's last modification time, so repeated polls of an idle run show the same timestamp. `swarm-post` returns JSON with a `post` field by default. Use `--raw` to get just the board text.
+`status` inspects up to the last 64 KiB of the run's JSONL log for `live_activity`. `live_activity.updated_at` comes from the log's last modification time, so repeated polls of an idle run show the same timestamp. `swarm-post` returns JSON (`SwarmPostPayload`: `run_id`, `task_id`, `command`, `backend`, `model`, `effort`, `execution_status`, `acceptance_status`, `post`) by default; use `--raw` to get just the board text.
+
+For non-running runs (`execution_status !== "running"`), `swarm-post` appends a `Details · agy-orch result --run-id <run_id> ...` drill-down line when details were omitted:
+
+- `Details · agy-orch result --run-id <run_id> --blocking-only` when unresolved blocking findings remain.
+- `Details · agy-orch result --run-id <run_id> --stderr-tail 40` when `failure_kind`, `failure_message`, `boundary_violation`, or `execution_status === "partial"` is present and no unresolved blocking findings remain.
+- `Details · agy-orch result --run-id <run_id>` when a review run has findings, `summary` exceeds 160 characters, or any displayed list exceeds 4 items.
+- Runs still in `running` state and clean `approve` runs with 0 findings and a short summary omit the `Details ·` line.

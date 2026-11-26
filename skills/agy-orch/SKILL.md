@@ -85,21 +85,28 @@ Common flags on `review-plan`, `delegate`, `review-changes`, and `start <cmd>`:
 - `--resume`: resume the exact `backend_session_id` stored for `--task-id` (requires matching `cwd` and `backend`; never falls back to `--last`).
 - `--worktree`: create an isolated git worktree under `${AGY_ORCH_STATE_DIR:-~/.local/state/agy-orch}/worktrees/<run_id>` (useful when parallelizing `delegate`).
 - `--background` (or `start <review-plan|delegate|review-changes>`): detach execution so `status`, `result`, and `cancel` manage the run across commands.
+- `--full`: return the raw `RunRecord` (plus `live_activity` on `status` or `kill_result` on `cancel`) instead of the default slim/summary view. Cannot be combined with `--finding`, `--blocking-only`, or `--category`.
 
 Manage async or completed runs:
 
 ```bash
-node "$AGY_ORCH" status --run-id "$RUN_ID"
-node "$AGY_ORCH" result --task-id feat-auth
+node "$AGY_ORCH" status --run-id "$RUN_ID" [--events-tail 20] [--stderr-tail 40] [--full]
+node "$AGY_ORCH" result --task-id feat-auth [--blocking-only] [--finding F1,F2] [--category real_defect] [--events-tail 20] [--stderr-tail 40] [--full]
 node "$AGY_ORCH" list --cwd "$REPO" --limit 20
-node "$AGY_ORCH" cancel --run-id "$RUN_ID"
+node "$AGY_ORCH" cancel --run-id "$RUN_ID" [--full]
 ```
+
+Default CLI outputs use progressive disclosure to keep context small:
+
+- `start`, `status`, and `cancel` return a `disclosure_level: "status"` view: `pre_fingerprint` and `post_fingerprint` are summarized without `entries`, `parsed_output` and `dispositions` are replaced by `output_summary`, `changed_files` is capped (20 on `start`/`status`, 50 on `cancel`) alongside `changed_files_count`, and `details_omitted` / `next_actions` are included (`status` includes `live_activity`; `start` omits it).
+- `result` and synchronous `review-plan`, `delegate`, and `review-changes` return a `disclosure_level: "summary"` view (never including `live_activity`): review runs return `finding_counts` and index-only `findings` (omitting `evidence`, `trigger`, `impact`, `minimal_fix`), `delegate` runs cap `modified_files` (20), `tests_run` (10), and `open_issues` (10) with `*_count` fields, and `dispositions_count` replaces the top-level `dispositions` array.
+- Drill down on `result` with `--blocking-only` (unresolved blocking findings), `--finding <csv>`, or `--category <csv>` (`requirement_gap`, `real_defect`, `engineering_tradeoff`, `optional_polish`) to get `disclosure_level: "detail"` with full finding objects and matched dispositions, or attach `--events-tail <n>` and `--stderr-tail <n>` (`1..500`) on `status` or `result`.
 
 ## Swarm Bridge
 
 In Antigravity `/swarm`, assign a native proxy member to run `start` and keep the returned `run_id`. Poll `status --run-id "$RUN_ID"` in short, separate tool calls. Use `live_activity.summary` as the next call's `toolSummary`.
 
-When the run ends, format a board update with `swarm-post --run-id "$RUN_ID" --mention "$LEAD" --done --raw` and send it with native `post_message`. See [Swarm bridge proxy briefs](references/swarm-bridge.md) for reviewer and implementer templates.
+When the run ends, format a board update with `swarm-post --run-id "$RUN_ID" --mention "$LEAD" --done --raw` and send it with native `post_message`. For non-running runs where findings, failures, long summaries (> 160 chars), or truncated lists (> 4 items) omit detail, `swarm-post` appends a `Details · agy-orch result --run-id ...` drill-down hint (`--blocking-only`, `--stderr-tail 40`, or default summary). See [Swarm bridge proxy briefs](references/swarm-bridge.md) for reviewer and implementer templates.
 
 ## Anti-Overdesign Disposition Protocol
 
