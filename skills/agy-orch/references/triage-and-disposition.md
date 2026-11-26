@@ -28,10 +28,12 @@ When the user explicitly requests a Codex plan review or code review, invoke `re
 
 ## Anti-Overdesign Checklist
 
-External reviewers running in clean context tend to suggest defensive layers that were never requested. Reject or defer a suggestion when any of these apply:
+External reviewers running in clean context tend to suggest defensive layers or edge-case guards that were never requested. Verify every finding locally before accepting it: inspect the cited `file:line`, trace real callers in the repository, and confirm whether the trigger actually crosses an external trust boundary. Reject or defer a suggestion when any of these apply:
 
 - Speculative abstraction: introducing a plugin registry, factory, event bus, or generic wrapper for one call site.
 - Unrequested infrastructure: adding retry queues, distributed locks, telemetry pipelines, or caching layers without a demonstrated failure path in `acceptance_criteria`.
+- Internal over-defense: adding redundant nil/type checks, defensive copies, escaping, or silent fallback branches inside internal functions whose callers and types already guarantee the invariant (validate once at external CLI/network/config/storage boundaries; trust internal invariants).
+- Unreachable edge-case inflation: constructing synthetic triggers (such as malformed internal IDs or impossible state combinations) with no reachable entrypoint within declared scope.
 - Scope expansion: refactoring untouched modules or renaming public APIs listed under `non_goals` or `constraints`.
 - Hypothetical defect: claiming a bug under `real_defect` or `requirement_gap` without citing concrete `evidence` (`file:line` or symbol), `trigger`, `impact`, and `minimal_fix`.
 
@@ -50,17 +52,18 @@ After `review-plan` or `review-changes` completes, run `dispose` to record the l
   - `accept` or `minimal_fix`: clears blocking (`blocking_after: false`) once verified/scheduled for fix.
   - `request_evidence`: keeps `blocking_after: true`.
   - `reject_overdesign` or `defer`: **blocked by runtime** unless the runtime already flagged `insufficient_evidence: true` on that finding AND a non-empty `reason` is provided for `reject_overdesign`. Substantiated defects cannot be dismissed as overdesign.
+  - Locally disproved claims: if a reviewer mislabels a false positive or internal over-defensive suggestion as `real_defect` with non-placeholder text, do not apply appeasement code just to clear `unresolved_blocking_ids`; verify locally, keep the local counter-evidence (`file:line` or passing test), and report it directly to the user without spinning extra rounds.
 - Omitted findings: any finding left out of `--decisions` whose category is `real_defect`, `requirement_gap`, or `blocking: true` remains in `unresolved_blocking_ids`.
 
 ## 2-Round Budget and Acceptance Outcome
 
-Each `review-plan` or `review-changes` invocation increments `round` on `task_id` (default `max_rounds = 2`):
+Each `review-plan` or `review-changes` invocation increments `round` on `task_id` (default `max_rounds = 2`). Never rotate or suffix `--task-id` (for example `-r2` or `-final`) to reset `round` and evade `max_rounds`:
 
-1. **Round 1**: Run review -> triage findings with `dispose`.
+1. **Round 1**: Run review -> verify findings locally -> triage with `dispose`.
    - If `unresolved_blocking_ids` is empty and no boundary/freshness error exists -> `acceptance_status: "approved"`.
-   - If blocking findings remain (`unresolved_blocking_ids.length > 0`) and `round < max_rounds` -> `acceptance_status: "changes_requested"`. Fix the minimal issues (via lead or `delegate`), then run Round 2 using `--task-id <id> --resume` (or a fresh review on the updated diff).
+   - If blocking findings remain (`unresolved_blocking_ids.length > 0`) and `round < max_rounds` -> `acceptance_status: "changes_requested"`. Fix only verified real issues (via lead or `delegate`), then verify locally with tests. Small, deterministic minimal fixes verified by local tests can conclude after Round 1 without spending Round 2; reserve Round 2 (`--task-id <id> --resume`) for non-trivial logic, state, concurrency, or auth rework, or when an explicit post-fix review gate is requested.
 2. **Round 2 (or `round >= max_rounds`)**:
    - If all blocking defects are resolved -> `acceptance_status: "approved"`.
-   - If any `real_defect` or `requirement_gap` (or `request_evidence` / missing decision) remains unresolved -> `acceptance_status` becomes **`blocked`**. The runtime never auto-approves unresolved defects when hitting `max_rounds`; surface the blocker and evidence to the user.
+   - If any `real_defect` or `requirement_gap` (or `request_evidence` / missing decision) remains unresolved -> `acceptance_status` becomes **`blocked`**. The runtime never auto-approves unresolved defects when hitting `max_rounds`; surface the blocker and evidence (or local counter-evidence if disproved) to the user.
 3. **Post-fix Freshness Invalidation**:
-   - Editing any file after a `review-changes` run invalidates its verdict (`freshness_status: "stale_by_code_change"`, `verdict_valid: false`, `acceptance_status: "stale"`). Run another `review-changes` pass after final edits if verification is required.
+   - Editing any file after a `review-changes` run invalidates its verdict (`freshness_status: "stale_by_code_change"`, `verdict_valid: false`, `acceptance_status: "stale"`) so the stale review cannot be cited as certifying the new diff. Small, deterministic minimal fixes verified by local tests can conclude with local test evidence without re-running `review-changes`; run Round 2 (`--task-id <id> --resume`) only when edits touch non-trivial state, concurrency, or auth behavior, or when post-edit review verification is explicitly required.

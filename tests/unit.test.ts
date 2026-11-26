@@ -12,7 +12,7 @@ import {
   isPathAllowed,
 } from "../skills/agy-orch/scripts/runtime/fingerprint.ts";
 import { acquireWriterLock, getWriterLockPath } from "../skills/agy-orch/scripts/runtime/lock.ts";
-import { validateHandoffPacket } from "../skills/agy-orch/scripts/runtime/packet.ts";
+import { buildExecutionPrompt, validateHandoffPacket } from "../skills/agy-orch/scripts/runtime/packet.ts";
 import { runDetachedWorker } from "../skills/agy-orch/scripts/runtime/runner.ts";
 import { validateReviewOutput, applyDispositions } from "../skills/agy-orch/scripts/runtime/schema-validate.ts";
 import { saveRun } from "../skills/agy-orch/scripts/runtime/store.ts";
@@ -366,4 +366,37 @@ test("runDetachedWorker aborts cleanly and releases lock if already cancelled be
     else process.env.AGY_ORCH_STATE_DIR = prevState;
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
+});
+
+test("buildExecutionPrompt enforces trust-boundary review rules, resume scope, and minimal delegate rules", () => {
+  const basePacket = {
+    original_request: "Fix checkout submit race",
+    goal: "Prevent duplicate orders",
+    acceptance_criteria: ["Only one POST /api/orders per click"],
+    constraints: ["Keep signature"],
+    non_goals: ["Rewrite store"],
+    relevant_files: ["src/checkout.ts"],
+  };
+
+  const initialReview = buildExecutionPrompt("review-changes", basePacket, "run-1", "task-1", 1, false);
+  assert.match(initialReview, /=== TASK HANDOFF PACKET ===/);
+  assert.match(initialReview, /reachable through realistic caller or external-input paths within the declared scope and trust boundaries/);
+  assert.match(initialReview, /do NOT flag missing defensive guards, redundant nil\/type checks, silent fallbacks/);
+  assert.doesNotMatch(initialReview, /RESUME REVIEW SCOPE/);
+
+  const resumedReview = buildExecutionPrompt("review-changes", basePacket, "run-2", "task-1", 1, true);
+  assert.match(resumedReview, /=== RESUMED TASK CONTEXT ===/);
+  assert.match(resumedReview, /RESUME REVIEW SCOPE:/);
+
+  const delegatePrompt = buildExecutionPrompt(
+    "delegate",
+    { ...basePacket, scope: { allowed_paths: ["src/checkout.ts"] } },
+    "run-3",
+    "task-1",
+    1,
+    false
+  );
+  assert.match(delegatePrompt, /SCOPED DELEGATION/);
+  assert.match(delegatePrompt, /\* src\/checkout\.ts/);
+  assert.match(delegatePrompt, /do NOT add unrequested abstractions, extra dependencies, or redundant defensive fallbacks inside trusted internal callers/);
 });

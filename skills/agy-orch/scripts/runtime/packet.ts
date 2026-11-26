@@ -85,16 +85,23 @@ export function buildExecutionPrompt(
     lines.push(
       "- You are in READ-ONLY review mode. Do NOT modify any files.",
       "- Classify every finding as one of: requirement_gap | real_defect | engineering_tradeoff | optional_polish.",
-      "- Every real_defect or requirement_gap MUST include concrete evidence (file:line or symbol), trigger condition, user/system impact, and minimal_fix. Do NOT invent speculative abstractions, frameworks, or extra dependencies.",
-      "- optional_polish items MUST have blocking=false.",
-      "- Respond with JSON matching the provided review output schema."
+      "- Reserve real_defect and requirement_gap strictly for defects or missing requirements reachable through realistic caller or external-input paths within the declared scope and trust boundaries, with concrete evidence (file:line or symbol), trigger condition, user/system impact, and minimal_fix.",
+      "- Validate external boundaries (CLI, network, config, storage, untrusted input) once; do NOT flag missing defensive guards, redundant nil/type checks, silent fallbacks, or hypothetical malformed inputs inside internal module boundaries where caller and type invariants already hold. Do NOT invent speculative abstractions, frameworks, or extra dependencies; omit internal-hardening nitpicks or classify genuine boundary tradeoffs at most as engineering_tradeoff or optional_polish (blocking=false).",
+      "- optional_polish items MUST have blocking=false."
     );
+    if (isResume) {
+      lines.push(
+        "- RESUME REVIEW SCOPE: Verify whether prior unresolved blockers are resolved and check for regressions introduced by the new changes. Do NOT open new speculative or defensive nitpick rounds on unchanged code or settled design choices."
+      );
+    }
+    lines.push("- Respond with JSON matching the provided review output schema.");
   } else {
     const allowed = packet.scope?.allowed_paths ?? [];
     lines.push(
       "- You are in SCOPED DELEGATION mode. Modify ONLY files matching scope.allowed_paths:",
       ...allowed.map((p) => `  * ${p}`),
       "- Do NOT touch files outside scope.allowed_paths.",
+      "- Keep changes minimal and direct; validate external boundaries once and do NOT add unrequested abstractions, extra dependencies, or redundant defensive fallbacks inside trusted internal callers.",
       "- Respond with JSON matching the provided delegate output schema."
     );
   }

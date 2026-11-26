@@ -30,7 +30,7 @@ node "$AGY_ORCH" config init
 
 ## Role Split
 
-- Lead (`agy` / Gemini): owns requirement framing, scope control, UI/visual/layout/UX authoring, task splitting, adversarial triage (`dispose`) of reviewer findings, integration, visual acceptance, and all user communication.
+- Lead (`agy` / Gemini): owns requirement framing, scope control, UI/visual/layout/UX authoring, task splitting, skeptical local verification and adversarial triage (`dispose`) of reviewer findings, integration, visual acceptance, and all user communication.
 - Specialist / Reviewer (`reviewer` and `implementer`, default `codex`): owns read-only `review-plan`, scoped `delegate` (backend logic, complex state/concurrency logic, bounded bug fixes), and read-only `review-changes` (including frontend state races, duplicate submit, and auth/permission guards).
 
 ## Lightweight Triage Gate
@@ -112,6 +112,7 @@ When the run ends, format a board update with `swarm-post --run-id "$RUN_ID" --m
 
 Review commands enforce `schemas/review-output.schema.json`. Each finding has a `category` (`requirement_gap`, `real_defect`, `engineering_tradeoff`, `optional_polish`), `blocking` boolean, `evidence`, `trigger`, `impact`, `minimal_fix`, and `files`.
 
+- Treat reviewer output as untrusted hypotheses, not a checklist to obey. Before editing code or running `dispose`, inspect the cited `file:line`, trace the real caller chain, and verify locally whether the trigger is reachable under the task's trust boundaries.
 - Every `real_defect` or `requirement_gap` must cite concrete `evidence` (`file:line` or symbol), `trigger`, `impact`, and `minimal_fix`. Missing or placeholder fields are flagged `insufficient_evidence: true` by the runtime.
 - `optional_polish` is forced to `blocking: false` and never blocks acceptance.
 - Record lead decisions on findings via `dispose`:
@@ -125,14 +126,16 @@ node "$AGY_ORCH" dispose --run-id "$RUN_ID" --decisions '[
 
 `--decisions` accepts inline JSON, `@path/to/decisions.json`, or `-` (stdin). Valid actions are `accept`, `minimal_fix`, `defer`, `request_evidence`, and `reject_overdesign`.
 
-- Reject speculative abstractions, extra dependencies, or unrequested retry/plugin layers via `reject_overdesign` or `defer` (with a concrete `reason` on `engineering_tradeoff`).
+- Validate external boundaries (CLI, network, config, storage, untrusted input) once, and reject internal over-defensive guards (redundant nil/type checks, silent fallbacks, or defending impossible internal inputs where caller invariants already hold) alongside speculative abstractions, extra dependencies, and unrequested retry/plugin layers via `reject_overdesign` or `defer` (with a concrete `reason` on `engineering_tradeoff`).
+- Runtime `dispose` blocks `reject_overdesign` and `defer` on substantiated `real_defect` or `requirement_gap` claims (unless `insufficient_evidence: true`). When local code or tests disprove a `real_defect` claim or show its trigger violates established internal invariants, do NOT write appeasement code or run extra review rounds just to force `acceptance_status: "approved"` — stop and report the local counter-evidence (`file:line` or test) to the user.
 - Maximum discussion budget defaults to `max_rounds = 2`. If `round >= max_rounds` and any `real_defect` or `requirement_gap` remains unresolved, `dispose` sets `acceptance_status` to `blocked` — never mark unresolved defects as approved.
+- Avoid review loops: default to 1 review pass followed by minimal local fixes and local test verification; run Round 2 (`--resume` on the same `--task-id`) only when fixes alter non-trivial state, concurrency, or auth logic (or when the user explicitly asked for a clean post-fix review gate), and never mint new `--task-id` suffixes (such as `-r2` or `-final`) to bypass `max_rounds = 2`.
 
 Read `references/triage-and-disposition.md` for the full triage matrix, anti-overdesign checklist, and disposition state rules.
 
 ## Engineering Invariants
 
-- Freshness after edits: whenever files in the workspace change after a `review-changes` run, run `node "$AGY_ORCH" check-freshness --task-id <id>` (or `status`/`result`). Any workspace fingerprint change marks `verdict_valid: false`, `freshness_status: "stale_by_code_change"`, and `acceptance_status: "stale"`. Re-review before accepting.
+- Freshness after edits: whenever files in the workspace change after a `review-changes` run, run `node "$AGY_ORCH" check-freshness --task-id <id>` (or `status`/`result`). Any workspace fingerprint change marks `verdict_valid: false`, `freshness_status: "stale_by_code_change"`, and `acceptance_status: "stale"` so the prior review verdict cannot be cited as certifying post-edit files. After a small deterministic `minimal_fix` verified by local tests, finish directly with local test results; re-run `review-changes` (`--resume` within `max_rounds`) only when the fix modifies non-trivial control flow, state, concurrency, or auth boundaries, or when a clean post-edit review receipt is explicitly required.
 - Write boundaries and single-writer lock: `review-plan` and `review-changes` run read-only and fail with `failure_kind: "boundary_violation"` if `post_fingerprint !== pre_fingerprint`. `delegate` holds a per-workspace `writer.lock` (failing fast with `writer_lock_held` on concurrent `delegate` runs in the same `cwd` unless `--worktree` is used) and fails with `boundary_violation` if any file outside `scope.allowed_paths` is modified.
 - Trustworthy result and parameter validation: `execution_status` (`running | completed | failed | cancelled | timed_out | partial`) is tracked separately from `acceptance_status` (`pending_triage | approved | changes_requested | blocked | stale`). Exit code `0` without `turn.completed` (for Codex JSONL) or valid schema output fails explicitly (`missing_terminal_event`, `empty_output`, or `invalid_output_schema`). Invalid `--model` or `--effort` fails with `invalid_parameter` and never falls back silently.
 - Timeout and cancel inspection before recovery: `cancel` and `--timeout-sec` terminate the child process group (`-pgid` `SIGTERM` -> 2s -> `SIGKILL`) and snapshot `post_fingerprint` plus `changed_files` (marking `execution_status: "partial"` on timeout with edits). Inspect `changed_files` and logs (`raw_events_path`, `stderr_path`) before deciding whether to resume, fix, or revert.
