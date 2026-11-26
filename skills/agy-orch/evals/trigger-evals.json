@@ -76,6 +76,14 @@
     "should_trigger": false
   },
   {
+    "query": "我把结账页卡死状态的浏览器截图保存到了 /tmp/checkout-stuck.png，请结合截图和 src/checkout/submit.ts 让 Codex 在只读模式下深挖异步状态根因。",
+    "should_trigger": true
+  },
+  {
+    "query": "对照我截的首页按钮对齐截图，把 src/styles/button.css 里的按钮圆角从 4px 调成 8px 并居中对齐，不涉及任何交互或状态逻辑。",
+    "should_trigger": false
+  },
+  {
     "query": "对比一下 PostgreSQL 的悲观锁和乐观锁在文档描述上怎么写更通俗，我只是在写技术博客。",
     "should_trigger": false
   }

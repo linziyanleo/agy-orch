@@ -4,7 +4,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { discoverBackends, loadMergedConfig, resolveRunSettings } from "../skills/agy-orch/scripts/runtime/config.ts";
+import { discoverBackends, getBackend, loadMergedConfig, resolveRunSettings } from "../skills/agy-orch/scripts/runtime/config.ts";
+import { buildBackendArgs } from "../skills/agy-orch/scripts/runtime/backend-runner.ts";
 import {
   computeWorkspaceFingerprint,
   diffFingerprints,
@@ -538,4 +539,94 @@ test("applyDispositions supports dispute_false_positive only with concrete reaso
     resolved.dispositions[0].counter_evidence,
     "src/cli.ts:16 and src/runner.ts:128 guarantee non-null string cwd"
   );
+});
+
+test("packet.images validation, prompt rendering, and buildBackendArgs image flag placement", () => {
+  const basePacket = {
+    original_request: "Debug stuck checkout spinner from screenshot",
+    goal: "Find why loading overlay remains visible after validation error",
+    acceptance_criteria: ["Root cause cited with file:line"],
+    constraints: [],
+    non_goals: [],
+    relevant_files: ["src/checkout.ts"],
+  };
+
+  assert.equal(validateHandoffPacket({ ...basePacket, images: [] }, "review-changes").ok, true);
+  assert.equal(validateHandoffPacket({ ...basePacket, images: ["/tmp/shot.png"] }, "review-changes").ok, true);
+  assert.equal(validateHandoffPacket({ ...basePacket, images: "not-array" }, "review-changes").ok, false);
+  assert.equal(validateHandoffPacket({ ...basePacket, images: ["  "] }, "review-changes").ok, false);
+
+  const withoutImages = buildExecutionPrompt("review-changes", basePacket, "run-1", "task-1", 1, false);
+  assert.doesNotMatch(withoutImages, /attached_images:/);
+
+  const withEmptyImages = buildExecutionPrompt("review-changes", { ...basePacket, images: [] }, "run-1", "task-1", 1, false);
+  assert.doesNotMatch(withEmptyImages, /attached_images:/);
+
+  const withImages = buildExecutionPrompt(
+    "review-changes",
+    { ...basePacket, images: ["/tmp/a.png", "/tmp/b.png"] },
+    "run-1",
+    "task-1",
+    1,
+    false
+  );
+  assert.match(withImages, /attached_images:\n- \/tmp\/a\.png\n- \/tmp\/b\.png/);
+
+  const codex = getBackend("codex");
+  assert.ok(codex);
+  assert.equal(codex.capabilities.image, true);
+
+  const initialArgs = buildBackendArgs({
+    backend: codex,
+    model: "gpt-6.2-sol",
+    effort: "high",
+    sandbox: "read-only",
+    effectiveCwd: "/tmp/repo",
+    prompt: withImages,
+    images: ["/tmp/a.png", "/tmp/b.png"],
+    schemaPath: "/tmp/schema.json",
+    lastMessagePath: "/tmp/last.json",
+    resumeSessionId: null,
+  });
+  const firstImgIdx = initialArgs.indexOf("-i");
+  assert.ok(firstImgIdx !== -1);
+  assert.deepEqual(initialArgs.slice(firstImgIdx, firstImgIdx + 4), ["-i", "/tmp/a.png", "-i", "/tmp/b.png"]);
+  assert.ok(firstImgIdx + 3 < initialArgs.indexOf("--output-schema"));
+  assert.ok(firstImgIdx + 3 < initialArgs.indexOf("-o"));
+
+  const resumeArgs = buildBackendArgs({
+    backend: codex,
+    model: "gpt-6.2-sol",
+    effort: "high",
+    sandbox: "read-only",
+    effectiveCwd: "/tmp/repo",
+    prompt: withImages,
+    images: ["/tmp/a.png"],
+    schemaPath: "/tmp/schema.json",
+    lastMessagePath: "/tmp/last.json",
+    resumeSessionId: "sess-123",
+  });
+  const resumeIdx = resumeArgs.indexOf("resume");
+  const resumeImgIdx = resumeArgs.indexOf("-i");
+  assert.ok(resumeImgIdx > resumeIdx);
+  assert.deepEqual(resumeArgs.slice(resumeImgIdx, resumeImgIdx + 2), ["-i", "/tmp/a.png"]);
+  assert.ok(resumeImgIdx + 1 < resumeArgs.indexOf("--output-schema"));
+  assert.ok(resumeArgs.indexOf("--output-schema") < resumeArgs.indexOf("sess-123"));
+
+  const agy = getBackend("agy");
+  assert.ok(agy);
+  assert.equal(agy.capabilities.image, false);
+  const agyArgs = buildBackendArgs({
+    backend: agy,
+    model: null,
+    effort: null,
+    sandbox: "read-only",
+    effectiveCwd: "/tmp/repo",
+    prompt: withImages,
+    images: ["/tmp/a.png"],
+    schemaPath: "/tmp/schema.json",
+    lastMessagePath: "/tmp/last.json",
+    resumeSessionId: null,
+  });
+  assert.ok(!agyArgs.includes("-i"));
 });

@@ -254,6 +254,7 @@ export async function main(argv: string[]): Promise<void> {
             ? `${b.profile.exec.effort_flag} ${b.profile.exec.effort_config_key}=<effort>`
             : b.profile.exec.effort_flag ?? null,
         sandbox: b.profile.exec.sandbox_flag ?? null,
+        image: b.profile.capabilities.image ? (b.profile.exec.image_flag ?? null) : null,
         resume: b.profile.resume.supported
           ? b.profile.resume.subcommand
             ? `${b.profile.resume.subcommand.join(" ")} <session_id>`

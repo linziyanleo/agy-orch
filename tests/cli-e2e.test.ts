@@ -635,3 +635,141 @@ test("standalone copy of skills/agy-orch executes without outer repo", () => {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }
 });
+
+test("CLI E2E: packet.images resolves, deduplicates, forwards -i on sync/resume/worktree, and fails fast on invalid paths or unsupported backends", async () => {
+  const ctx = setupTestEnv();
+  try {
+    const backendsRes = ctx.runCli(["backends"]);
+    assert.equal(backendsRes.code, 0);
+    const codexInfo = backendsRes.data.backends.find((b: { name: string }) => b.name === "codex");
+    assert.equal(codexInfo.capabilities.image, true);
+    assert.equal(codexInfo.identity_flags.image, "-i");
+
+    // 1. Review with relative + absolute + duplicate image paths
+    const relShotDir = path.join(ctx.repoDir, "tmp-shots");
+    fs.mkdirSync(relShotDir, { recursive: true });
+    const relShot = path.join(relShotDir, "screen1.png");
+    const absShot = path.join(ctx.root, "screen2.png");
+    fs.writeFileSync(relShot, "png-1", "utf8");
+    fs.writeFileSync(absShot, "png-2", "utf8");
+    const canonicalRelShot = fs.realpathSync(relShot);
+    const canonicalAbsShot = fs.realpathSync(absShot);
+
+    const imgPacketPath = path.join(ctx.root, "packet-images.json");
+    const basePacket = JSON.parse(fs.readFileSync(ctx.packetPath, "utf8"));
+    fs.writeFileSync(
+      imgPacketPath,
+      JSON.stringify({
+        ...basePacket,
+        images: ["tmp-shots/screen1.png", absShot, canonicalRelShot],
+      }),
+      "utf8"
+    );
+
+    const rev1 = ctx.runCli(
+      ["review-changes", "--cwd", ctx.repoDir, "--task-id", "t-img", "--packet", imgPacketPath],
+      { MOCK_CODEX_MODE: "review_defect", MOCK_THREAD_ID: "uuid-img-1" }
+    );
+    assert.equal(rev1.code, 0);
+    const prompt1 = fs.readFileSync(rev1.data.prompt_path, "utf8");
+    assert.match(prompt1, new RegExp(`attached_images:\\n- ${canonicalRelShot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n- ${canonicalAbsShot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+
+    // 2. Resume with images
+    const rev2 = ctx.runCli(
+      ["review-changes", "--cwd", ctx.repoDir, "--task-id", "t-img", "--resume", "--packet", imgPacketPath],
+      { MOCK_CODEX_MODE: "review_defect", MOCK_THREAD_ID: "uuid-img-1" }
+    );
+    assert.equal(rev2.code, 0);
+
+    // 3. Detached start delegate --worktree with repo-relative untracked screenshot (resolved against baseCwd)
+    const wtPacketPath = path.join(ctx.root, "packet-wt-images.json");
+    fs.writeFileSync(
+      wtPacketPath,
+      JSON.stringify({
+        ...basePacket,
+        images: ["tmp-shots/screen1.png"],
+      }),
+      "utf8"
+    );
+    const started = ctx.runCli(
+      ["start", "delegate", "--cwd", ctx.repoDir, "--task-id", "t-img-wt", "--worktree", "--packet", wtPacketPath],
+      { MOCK_CODEX_MODE: "delegate_ok" }
+    );
+    assert.equal(started.code, 0);
+    assert.equal(started.data.execution_status, "running");
+
+    const deadline = Date.now() + 5000;
+    let wtStatus = ctx.runCli(["status", "--run-id", started.data.run_id]);
+    while (wtStatus.data.execution_status === "running" && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 50));
+      wtStatus = ctx.runCli(["status", "--run-id", started.data.run_id]);
+    }
+    assert.equal(wtStatus.data.execution_status, "completed");
+
+    const argvLines = fs
+      .readFileSync(ctx.argvLog, "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l) as string[]);
+    assert.equal(argvLines.length, 3);
+
+    const argv1 = argvLines[0];
+    const i1 = argv1.indexOf("-i");
+    assert.deepEqual(argv1.slice(i1, i1 + 4), ["-i", canonicalRelShot, "-i", canonicalAbsShot]);
+    assert.ok(i1 + 3 < argv1.indexOf("--output-schema"));
+    assert.ok(i1 + 3 < argv1.indexOf("-o"));
+
+    const argv2 = argvLines[1];
+    const i2 = argv2.indexOf("-i");
+    assert.ok(i2 > argv2.indexOf("resume"));
+    assert.deepEqual(argv2.slice(i2, i2 + 4), ["-i", canonicalRelShot, "-i", canonicalAbsShot]);
+    assert.ok(i2 + 3 < argv2.indexOf("--output-schema"));
+
+    const argv3 = argvLines[2];
+    const i3 = argv3.indexOf("-i");
+    assert.deepEqual(argv3.slice(i3, i3 + 2), ["-i", canonicalRelShot]);
+
+    // 4. Missing image and directory path fail fast with invalid_packet without spawning backend
+    const missingPacket = path.join(ctx.root, "packet-missing-img.json");
+    fs.writeFileSync(missingPacket, JSON.stringify({ ...basePacket, images: ["does-not-exist.png"] }), "utf8");
+    const missingRes = ctx.runCli(["review-changes", "--cwd", ctx.repoDir, "--task-id", "t-img-miss", "--packet", missingPacket]);
+    assert.equal(missingRes.code, 1);
+    assert.equal(missingRes.data.failure_kind, "invalid_packet");
+
+    const dirPacket = path.join(ctx.root, "packet-dir-img.json");
+    fs.writeFileSync(dirPacket, JSON.stringify({ ...basePacket, images: ["tmp-shots"] }), "utf8");
+    const dirRes = ctx.runCli(["review-changes", "--cwd", ctx.repoDir, "--task-id", "t-img-dir", "--packet", dirPacket]);
+    assert.equal(dirRes.code, 1);
+    assert.equal(dirRes.data.failure_kind, "invalid_packet");
+
+    // 5. Backend with capabilities.image=false fails fast with invalid_parameter without spawning binary
+    const codexProfile = JSON.parse(fs.readFileSync(path.join(ctx.configDir, "backends", "codex.json"), "utf8"));
+    fs.writeFileSync(
+      path.join(ctx.configDir, "backends", "no-image.json"),
+      JSON.stringify({
+        ...codexProfile,
+        name: "no-image",
+        capabilities: { ...codexProfile.capabilities, image: false },
+      }),
+      "utf8"
+    );
+    const unsupportedRes = ctx.runCli([
+      "review-changes",
+      "--cwd",
+      ctx.repoDir,
+      "--task-id",
+      "t-img-unsup",
+      "--backend",
+      "no-image",
+      "--packet",
+      imgPacketPath,
+    ]);
+    assert.equal(unsupportedRes.code, 1);
+    assert.equal(unsupportedRes.data.failure_kind, "invalid_parameter");
+
+    const argvCountAfter = fs.readFileSync(ctx.argvLog, "utf8").trim().split("\n").length;
+    assert.equal(argvCountAfter, 3);
+  } finally {
+    ctx.cleanup();
+  }
+});

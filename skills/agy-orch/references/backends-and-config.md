@@ -55,8 +55,8 @@ You can also add custom roles (for example `security_reviewer` or `backend_coder
 Run `node "$AGY_ORCH" backends` to inspect discovered backends and binary availability:
 
 - `codex` (active by default, `codex-jsonl`):
-  - New run: `codex exec --json --skip-git-repo-check -C <cwd> -s <read-only|workspace-write> -m <model> -c model_reasoning_effort="<effort>" --output-schema <file> -o <file> -`
-  - Resume run: `codex exec -C <cwd> -s <sandbox> resume --json --skip-git-repo-check -m <model> -c model_reasoning_effort="<effort>" --output-schema <file> -o <file> <backend_session_id> -` (`-C` and `-s` are placed before `resume` because `codex exec resume` rejects them after the subcommand; `--last` is never used).
+  - New run: `codex exec --json --skip-git-repo-check -C <cwd> -s <read-only|workspace-write> -m <model> -c model_reasoning_effort="<effort>" [-i <image> ...] --output-schema <file> -o <file> -`
+  - Resume run: `codex exec -C <cwd> -s <sandbox> resume --json --skip-git-repo-check -m <model> -c model_reasoning_effort="<effort>" [-i <image> ...] --output-schema <file> -o <file> <backend_session_id> -` (`-C` and `-s` are placed before `resume` because `codex exec resume` rejects them after the subcommand; `--last` is never used).
   - Non-fatal `item.completed` warning items (`item.type === "error"`) emitted by experimental Codex flags are ignored; only top-level `error` or `turn.failed` events fail the run, and `turn.completed` plus valid schema output are required for `completed`.
 - `agy` (`agy`, `jsonl-generic`, `skills/agy-orch/backends/agy.json`):
   - Uses `-p --output-format stream-json --disable-slash-commands --sandbox`, `--model <model>`, `--effort <effort>`, `--mode <plan|accept-edits|auto>`, `--json-schema <file>`, and `--conversation <session_id>` on resume (`cwd` via child process `cwd`).
@@ -84,7 +84,8 @@ Place a JSON profile at `~/.config/agy-orch/backends/<name>.json` (same `name` o
     "sandbox": true,
     "resume": true,
     "output_schema": false,
-    "worktree": false
+    "worktree": false,
+    "image": false
   },
   "defaults": {
     "model": "default-model",
@@ -117,4 +118,5 @@ Place a JSON profile at `~/.config/agy-orch/backends/<name>.json` (same `name` o
 Supported `output_protocol` values: `codex-jsonl`, `jsonl-generic`, `json`, `text`.
 Supported `exec.prompt_mode` values: `stdin-dash` (`-`), `stdin`, `arg` (with optional `prompt_separator`, e.g. `"--"`), `flag` (with `prompt_flag`).
 Supported `exec.effort_mode` values: `codex-config` (`-c key="val"`), `flag`, `none`.
+Optional image attachment support: set `"capabilities": { ..., "image": true }` and `"exec": { ..., "image_flag": "-i" }` to forward `packet.images` as repeated `<image_flag> <path>` arguments before schema/last-message flags.
 Always set `"never_use_last": true` in `resume` so session continuity remains deterministic per `task_id`.

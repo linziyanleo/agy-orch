@@ -10,7 +10,8 @@
     "sandbox": true,
     "resume": true,
     "output_schema": false,
-    "worktree": true
+    "worktree": true,
+    "image": false
   },
   "defaults": {
     "timeout_sec": 1800

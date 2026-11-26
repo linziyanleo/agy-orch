@@ -61,6 +61,7 @@ export interface HandoffPacket {
   relevant_files: string[];
   plan?: string;
   diff_summary?: string;
+  images?: string[];
   scope?: PacketScope;
   extra_instructions?: string;
 }
@@ -113,6 +114,7 @@ export interface BackendCapabilities {
   resume: boolean;
   output_schema: boolean;
   worktree: boolean;
+  image?: boolean;
 }
 
 export interface BackendProfile {
@@ -138,6 +140,7 @@ export interface BackendProfile {
     cwd_flag?: string;
     output_schema_flag?: string;
     output_last_message_flag?: string;
+    image_flag?: string;
     prompt_mode: "stdin-dash" | "stdin" | "arg" | "flag";
     prompt_separator?: string;
     prompt_flag?: string;

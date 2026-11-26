@@ -21,6 +21,7 @@ Optional fields:
 
 - `plan` (`string`): proposed implementation plan text (used in `review-plan`).
 - `diff_summary` (`string`): summary of edits under review (used in `review-changes`).
+- `images` (`string[]`): optional local screenshot or image file paths (absolute or relative to `--cwd`) for multimodal root-cause debugging. Paths are resolved against `--cwd` (before `--worktree` isolation), validated for existence/readability (`invalid_packet` on missing or non-file paths), canonicalized, deduplicated, and forwarded to backends declaring `capabilities.image` (such as Codex `-i` on both initial and `--resume` runs). Passing non-empty `images` to a backend without image support fails fast with `failure_kind: "invalid_parameter"`.
 - `extra_instructions` (`string`): focused checks such as auth guards, race conditions, or test commands.
 
 ## Packet Examples
@@ -103,6 +104,9 @@ Optional fields:
   "relevant_files": [
     "src/checkout/submit.ts",
     "tests/checkout-submit.test.ts"
+  ],
+  "images": [
+    "/tmp/checkout-stuck-state.png"
   ],
   "diff_summary": "Added inFlight lock and AbortController request sequencing in src/checkout/submit.ts."
 }

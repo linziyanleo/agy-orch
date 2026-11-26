@@ -1,7 +1,7 @@
 ---
 name: agy-orch
 license: MIT
-description: Orchestrate bounded collaboration between the lead agent (Gemini / Antigravity) and external specialist or reviewer CLIs (default Codex, extensible to qodercli, pi, claude-code) via explicit handoff packets, read-only plan/code review, scoped delegation, freshness checks, and adversarial finding disposition. Use when implementing or modifying backend logic, auth/permissions, state machines, async/concurrency flows, APIs, multi-file changes, bug fixes with subtle state races or duplicate-submit risks, or when the user asks to delegate or have Codex review a plan or diff. Do NOT trigger on trivial single-file CSS/copy/typo tweaks, pure UI layout polish with no logic or state risk, or standalone factual questions; run the lightweight triage check first and skip heavy review when risk is trivial.
+description: Orchestrate bounded collaboration between the lead agent (Gemini / Antigravity) and external specialist or reviewer CLIs (default Codex, extensible to qodercli, pi, claude-code) via explicit handoff packets, optional screenshot attachments, read-only plan/code review, scoped delegation, freshness checks, and adversarial finding disposition. Use when implementing or modifying backend logic, auth/permissions, state machines, async/concurrency flows, APIs, multi-file changes, bug fixes with subtle state races or duplicate-submit risks, screenshot-backed visual root-cause debugging, or when the user asks to delegate or have Codex review a plan or diff. Do NOT trigger on trivial single-file CSS/copy/typo tweaks, pure UI layout polish with no logic or state risk, or standalone factual questions; run the lightweight triage check first and skip heavy review when risk is trivial.
 ---
 
 # agy-orch
@@ -58,7 +58,7 @@ External specialists start with a clean context and cannot see the lead conversa
 - `non_goals` (`string[]`): explicit exclusions so the specialist does not expand scope.
 - `relevant_files` (`string[]`): paths the specialist should read first.
 - `scope.allowed_paths` (non-empty `string[]`, required for `delegate`): path prefixes or globs that `delegate` may modify.
-- Optional fields: `plan` (for `review-plan`), `diff_summary`, `extra_instructions`.
+- Optional fields: `plan` (for `review-plan`), `diff_summary`, `images` (`string[]` of local screenshot/image paths, absolute or relative to `--cwd`, forwarded to backends with `capabilities.image` such as Codex `-i` on both initial and `--resume` runs; unsupported backends fail fast with `invalid_parameter`), `extra_instructions`.
 
 Read `references/handoff-and-schemas.md` for complete packet templates, output schemas, and status payloads.
 

@@ -10,7 +10,8 @@
     "sandbox": true,
     "resume": true,
     "output_schema": true,
-    "worktree": true
+    "worktree": true,
+    "image": true
   },
   "defaults": {
     "timeout_sec": 1800
@@ -30,6 +31,7 @@
     "cwd_flag": "-C",
     "output_schema_flag": "--output-schema",
     "output_last_message_flag": "-o",
+    "image_flag": "-i",
     "prompt_mode": "stdin-dash"
   },
   "resume": {

@@ -77,6 +77,41 @@ export function checkAntiRecursion(): { ok: true } | { ok: false; failure_kind: 
   return { ok: true };
 }
 
+function resolvePacketImages(
+  images: string[] | undefined,
+  baseCwd: string
+): { ok: true; images: string[] } | { ok: false; error: string } {
+  if (!images || images.length === 0) {
+    return { ok: true, images: [] };
+  }
+  const resolved: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of images) {
+    const trimmed = raw.trim();
+    const candidate = path.isAbsolute(trimmed) ? path.resolve(trimmed) : path.resolve(baseCwd, trimmed);
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(candidate);
+    } catch {
+      return { ok: false, error: `Image attachment does not exist or is not accessible: ${trimmed}` };
+    }
+    if (!stat.isFile()) {
+      return { ok: false, error: `Image attachment must be a regular file: ${trimmed}` };
+    }
+    try {
+      fs.accessSync(candidate, fs.constants.R_OK);
+    } catch {
+      return { ok: false, error: `Image attachment is not readable: ${trimmed}` };
+    }
+    const real = fs.realpathSync(candidate);
+    if (!seen.has(real)) {
+      seen.add(real);
+      resolved.push(real);
+    }
+  }
+  return { ok: true, images: resolved };
+}
+
 function makeErrorResult(failure_kind: FailureKind, failure_message: string) {
   return {
     ok: false,
@@ -219,6 +254,28 @@ function prepareRun(opts: StartRunOptions):
     };
   }
 
+  const imageCheck = resolvePacketImages(packet.images, baseCwd);
+  if (!imageCheck.ok) {
+    return {
+      ok: false,
+      error: makeErrorResult("invalid_packet", imageCheck.error),
+    };
+  }
+  if (imageCheck.images.length > 0) {
+    const profile = resolved.backend_profile.profile;
+    if (!profile.capabilities.image || !profile.exec.image_flag) {
+      return {
+        ok: false,
+        error: makeErrorResult(
+          "invalid_parameter",
+          `Backend '${resolved.backend}' does not support image attachments (packet.images)`
+        ),
+      };
+    }
+  }
+  const normalizedPacket: HandoffPacket =
+    imageCheck.images.length > 0 ? { ...packet, images: imageCheck.images } : packet;
+
   if (opts.resume && !opts.task_id) {
     return {
       ok: false,
@@ -299,7 +356,7 @@ function prepareRun(opts: StartRunOptions):
   const depth = Number(process.env.AGY_ORCH_DEPTH ?? "0") + 1;
   const prompt = buildExecutionPrompt(
     opts.command,
-    packet,
+    normalizedPacket,
     runId,
     taskId,
     depth,
@@ -419,7 +476,7 @@ function prepareRun(opts: StartRunOptions):
     ctx: {
       run,
       task: persistedTask,
-      packet,
+      packet: normalizedPacket,
       prompt,
       schemaPath,
       backendDiscovered: resolved.backend_profile,
@@ -441,6 +498,7 @@ async function finishRunContext(ctx: PreparedRunContext): Promise<RunRecord> {
       sandbox: run.sandbox,
       effectiveCwd: run.effective_cwd,
       prompt,
+      images: packet.images,
       schemaPath,
       lastMessagePath: run.last_message_path,
       rawEventsPath: run.raw_events_path,

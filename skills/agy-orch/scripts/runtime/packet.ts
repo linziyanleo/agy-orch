@@ -47,6 +47,9 @@ export function validateHandoffPacket(
   if (!isStringArray(obj.relevant_files, false)) {
     errors.push("relevant_files must be a string[]");
   }
+  if (obj.images !== undefined && !isStringArray(obj.images, false)) {
+    errors.push("images must be a string[] of non-empty paths");
+  }
 
   if (command === "delegate") {
     const scope = obj.scope;
@@ -120,6 +123,10 @@ export function buildExecutionPrompt(
     "relevant_files:",
     ...(packet.relevant_files.length ? packet.relevant_files.map((f) => `- ${f}`) : ["- (none)"])
   );
+
+  if (packet.images && packet.images.length > 0) {
+    lines.push("attached_images:", ...packet.images.map((img) => `- ${img}`));
+  }
 
   if (packet.plan) {
     lines.push("", "proposed_plan:", packet.plan);

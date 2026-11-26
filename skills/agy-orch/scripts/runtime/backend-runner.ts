@@ -23,6 +23,7 @@ export interface BackendExecOptions {
   sandbox: SandboxMode;
   effectiveCwd: string;
   prompt: string;
+  images?: string[];
   schemaPath: string;
   lastMessagePath: string;
   rawEventsPath: string;
@@ -52,6 +53,7 @@ export function buildBackendArgs(opts: {
   sandbox: SandboxMode;
   effectiveCwd: string;
   prompt: string;
+  images?: string[];
   schemaPath: string;
   lastMessagePath: string;
   resumeSessionId: string | null;
@@ -99,6 +101,14 @@ export function buildBackendArgs(opts: {
     }
   };
 
+  const pushImages = () => {
+    if (opts.images && opts.images.length > 0 && profile.capabilities.image && profile.exec.image_flag) {
+      for (const img of opts.images) {
+        args.push(profile.exec.image_flag, img);
+      }
+    }
+  };
+
   const pushPrompt = () => {
     if (profile.exec.prompt_mode === "stdin-dash") {
       args.push("-");
@@ -127,6 +137,7 @@ export function buildBackendArgs(opts: {
     if (!preFlags.has(profile.exec.cwd_flag ?? "")) pushCwd();
     if (!preFlags.has(profile.exec.sandbox_flag ?? "")) pushSandbox();
     pushModelAndEffort();
+    pushImages();
     pushSchemaAndLast();
     args.push(opts.resumeSessionId!);
     pushPrompt();
@@ -137,6 +148,7 @@ export function buildBackendArgs(opts: {
   pushCwd();
   pushSandbox();
   pushModelAndEffort();
+  pushImages();
   pushSchemaAndLast();
 
   if (isResume && profile.resume.session_mode === "flag" && profile.resume.session_flag) {
@@ -259,6 +271,7 @@ export async function executeBackend(opts: BackendExecOptions): Promise<BackendE
     sandbox: opts.sandbox,
     effectiveCwd: opts.effectiveCwd,
     prompt: opts.prompt,
+    images: opts.images,
     schemaPath: opts.schemaPath,
     lastMessagePath: opts.lastMessagePath,
     resumeSessionId: opts.resumeSessionId,

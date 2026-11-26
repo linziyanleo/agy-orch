@@ -55,6 +55,17 @@
         "Timeout after modifying >= 1 file records execution_status === 'partial' (or 'timed_out' when 0 files changed), failure_kind === 'timed_out', and exact paths in changed_files",
         "verdict_valid === false on both cancelled and timed_out/partial runs so callers inspect changed_files before recovery"
       ]
+    },
+    {
+      "id": 6,
+      "prompt": "浏览器里表单校验报错后加载中遮罩层一直没消失，我已经把现场截图存成 /tmp/checkout-stuck.png，请结合截图和提交代码让 Codex 在只读模式下排查根因。",
+      "expected_output": "Include valid local screenshot paths in packet.images; agy-orch resolves/validates them and forwards -i <path> to Codex on both initial and --resume runs, while failing fast with invalid_packet on missing image paths or invalid_parameter on backends without capabilities.image.",
+      "files": [],
+      "expectations": [
+        "Handoff packet passes local screenshot path(s) in packet.images and buildExecutionPrompt renders attached_images:",
+        "Codex CLI receives -i <canonical_image_path> before --output-schema and -o on both initial and --resume runs",
+        "Missing/non-file image path fails fast with failure_kind === 'invalid_packet', and a backend with capabilities.image === false fails fast with failure_kind === 'invalid_parameter'"
+      ]
     }
   ]
 }
