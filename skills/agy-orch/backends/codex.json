@@ -13,7 +13,7 @@
     "worktree": true
   },
   "defaults": {
-    "timeout_sec": 900
+    "timeout_sec": 1800
   },
   "exec": {
     "base_args": ["exec", "--json", "--skip-git-repo-check"],

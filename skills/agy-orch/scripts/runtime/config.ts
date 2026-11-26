@@ -23,18 +23,18 @@ export const DEFAULT_ROLES: Record<string, RoleConfig> = {
   reviewer: {
     backend: "codex",
     max_rounds: 2,
-    timeout_sec: 600,
+    timeout_sec: 1800,
   },
   implementer: {
     backend: "codex",
-    timeout_sec: 900,
+    timeout_sec: 1800,
   },
 };
 
 export const DEFAULT_USER_CONFIG: UserConfig = {
   roles: DEFAULT_ROLES,
   defaults: {
-    timeout_sec: 900,
+    timeout_sec: 1800,
     max_rounds: 2,
   },
 };

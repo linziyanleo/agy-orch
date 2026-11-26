@@ -13,7 +13,7 @@
     "worktree": false
   },
   "defaults": {
-    "timeout_sec": 900
+    "timeout_sec": 1800
   },
   "exec": {
     "base_args": ["-p", "--output-format", "stream-json", "--disable-slash-commands", "--sandbox"],

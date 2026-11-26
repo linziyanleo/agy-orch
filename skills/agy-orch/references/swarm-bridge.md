@@ -52,7 +52,7 @@ Omit `--worktree` for this brief. Each run with `--worktree` creates a fresh Git
 ## Short-step polling procedure
 
 - Call `node "$AGY_ORCH" status --run-id "$RUN_ID"` once in a short tool call. `status` returns the slim `disclosure_level: "status"` view with `live_activity` (without `fingerprint.entries` or full `parsed_output`). For the first call, set `toolSummary` to the Codex model and effort plus `Waiting for events`.
-- While `execution_status` is `running`, space checks by a few seconds. In each separate tool call, use the previous `live_activity.summary` alongside the Codex model and effort in `toolSummary`. When `live_activity` is `null`, keep `Waiting for events`. Pass `--events-tail <n>` or `--stderr-tail <n>` (`1..500`) only when inspecting a stalled or failing run.
+- While `execution_status` is `running`, space checks by 30 seconds (for example via `schedule` with `DurationSeconds=30`). In each separate tool call, use the previous `live_activity.summary` alongside the Codex model and effort in `toolSummary`. When `live_activity` is `null`, keep `Waiting for events`. Pass `--events-tail <n>` or `--stderr-tail <n>` (`1..500`) only when inspecting a stalled or failing run.
 - Keep each call well below Swarm's 10-minute `STUCK_MS` threshold. Separate calls expose progress in the Members tab. Avoid a single long shell loop.
 - When `execution_status` leaves `running`, run `node "$AGY_ORCH" swarm-post --run-id "$RUN_ID" --mention "$LEAD" --done --raw`. Pass the returned text to the native `post_message` tool. `[done]` marks the end of execution. The post reports acceptance separately.
 

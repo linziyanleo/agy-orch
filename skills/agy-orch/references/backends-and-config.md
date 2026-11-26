@@ -30,15 +30,15 @@ Running `node "$AGY_ORCH" config init` writes the default user config if it does
     "reviewer": {
       "backend": "codex",
       "max_rounds": 2,
-      "timeout_sec": 600
+      "timeout_sec": 1800
     },
     "implementer": {
       "backend": "codex",
-      "timeout_sec": 900
+      "timeout_sec": 1800
     }
   },
   "defaults": {
-    "timeout_sec": 900,
+    "timeout_sec": 1800,
     "max_rounds": 2
   }
 }
@@ -89,7 +89,7 @@ Place a JSON profile at `~/.config/agy-orch/backends/<name>.json` (same `name` o
   "defaults": {
     "model": "default-model",
     "effort": "high",
-    "timeout_sec": 900
+    "timeout_sec": 1800
   },
   "exec": {
     "base_args": ["-p", "--output-format", "stream-json"],
