@@ -93,3 +93,17 @@ test("packaging: the bundled logo is a square RGBA PNG", () => {
   assert.equal(bitDepth, 8);
   assert.equal(colorType, 6, "Logo PNG must include an alpha channel (RGBA)");
 });
+
+test("packaging: SKILL.md stays concise and every referenced guide exists", () => {
+  const skillRoot = path.resolve("skills/agy-orch");
+  const skillMd = fs.readFileSync(path.join(skillRoot, "SKILL.md"), "utf8");
+  const lineCount = skillMd.split("\n").length;
+  assert.ok(lineCount < 500, `SKILL.md should stay under 500 lines, got ${lineCount}`);
+
+  const refMatches = [...skillMd.matchAll(/references\/([a-zA-Z0-9._-]+\.md)/g)];
+  assert.ok(refMatches.length >= 4, "SKILL.md should reference its guide files");
+  for (const match of refMatches) {
+    const relPath = path.join("references", match[1]);
+    assert.ok(fs.existsSync(path.join(skillRoot, relPath)), `Missing referenced file: ${relPath}`);
+  }
+});

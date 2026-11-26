@@ -66,6 +66,17 @@
         "Codex CLI receives -i <canonical_image_path> before --output-schema and -o on both initial and --resume runs",
         "Missing/non-file image path fails fast with failure_kind === 'invalid_packet', and a backend with capabilities.image === false fails fast with failure_kind === 'invalid_parameter'"
       ]
+    },
+    {
+      "id": 7,
+      "prompt": "在普通单会话（非 /swarm）里把一个耗时的后端状态机改造用 start delegate --worktree 派出去后台执行，同时用轻量看护子代理每 30-45 秒查进度并在结束后把结果摘要带回主控。",
+      "expected_output": "Lead runs start delegate --worktree first to capture run_id/task_id/worktree_path and surface fast-fail errors, then invokes a read-only flash_lite self subagent that waits via native schedule, polls status --run-id, escalates stalls with --events-tail/--stderr-tail, and returns the result summary without editing files or calling dispose.",
+      "files": [],
+      "expectations": [
+        "Lead executes agy-orch start delegate --worktree directly before spawning the watcher subagent",
+        "Watcher subagent uses TypeName 'self' with Model 'flash_lite' (or 'flash'), polls status --run-id via native schedule (30-45s), and fetches result --run-id on completion",
+        "Watcher never edits repository files, never runs dispose or --resume, and returns run_id, execution_status, worktree_path, and summary/next_actions to the lead"
+      ]
     }
   ]
 }

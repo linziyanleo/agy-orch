@@ -102,6 +102,12 @@ Default CLI outputs use progressive disclosure to keep context small:
 - `result` and synchronous `review-plan`, `delegate`, and `review-changes` return a `disclosure_level: "summary"` view (never including `live_activity`): review runs return `finding_counts` and index-only `findings` (omitting `evidence`, `trigger`, `impact`, `minimal_fix`), `delegate` runs cap `modified_files` (20), `tests_run` (10), and `open_issues` (10) with `*_count` fields, and `dispositions_count` replaces the top-level `dispositions` array.
 - Drill down on `result` with `--blocking-only` (unresolved blocking findings), `--finding <csv>`, or `--category <csv>` (`requirement_gap`, `real_defect`, `engineering_tradeoff`, `optional_polish`) to get `disclosure_level: "detail"` with full finding objects and matched dispositions, or attach `--events-tail <n>` and `--stderr-tail <n>` (`1..500`) on `status` or `result`.
 
+## Lightweight Watcher Subagent (Non-Swarm Async Runs)
+
+Outside `/swarm`, long-running `start delegate` (e.g. parallel `--worktree` edits) or high-effort `start review-changes` / `start review-plan` runs can take minutes. Run `node "$AGY_ORCH" start ...` in the lead first so fast-fail validation errors surface immediately and `run_id` / `task_id` stay in lead context, then delegate polling to a read-only watcher via `invoke_subagent` (`TypeName: "self"`, `Model: "flash_lite"` or `"flash"`, `Role: "Async Run Watcher"`).
+
+The watcher polls `status --run-id "$RUN_ID"` every 30–45s using native `schedule` (never editing files, never running `dispose`/`--resume`/`cancel`, and escalating stalls with `--events-tail 20 --stderr-tail 40` after 6 unchanged polls), then returns the final `result` summary so the lead can verify and run `dispose`. See [Lightweight watcher subagent guide](references/async-watcher.md) for the brief template and stall rules.
+
 ## Swarm Bridge
 
 In Antigravity `/swarm`, assign a native proxy member to run `start` and keep the returned `run_id`. Poll `status --run-id "$RUN_ID"` in short, separate tool calls. Use `live_activity.summary` as the next call's `toolSummary`.

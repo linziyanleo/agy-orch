@@ -84,6 +84,14 @@
     "should_trigger": false
   },
   {
+    "query": "我想把一个耗时较长的后端重构任务用 --worktree 丢到后台让 Codex 跑，自己这边继续改前端界面，找个轻量小代理帮我盯着任务完成再汇报。",
+    "should_trigger": true
+  },
+  {
+    "query": "帮我在后台起一个本地 Vite 开发服务器 npm run dev 并打开浏览器看下首页渲染效果，不需要外部审阅也不用改后端。",
+    "should_trigger": false
+  },
+  {
     "query": "对比一下 PostgreSQL 的悲观锁和乐观锁在文档描述上怎么写更通俗，我只是在写技术博客。",
     "should_trigger": false
   }
