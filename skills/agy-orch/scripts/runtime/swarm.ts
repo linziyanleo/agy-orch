@@ -2,20 +2,20 @@ import fs from "node:fs";
 import { getUnresolvedBlockingFindings } from "./schema-validate.ts";
 import type { RunLiveActivity, RunRecord, SwarmPostPayload } from "./types.ts";
 
-function asObject(value: unknown): Record<string, unknown> | undefined {
+export function asObject(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
 }
 
-function asText(value: unknown): string | undefined {
+export function asText(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function compactText(text: string): string {
+export function compactText(text: string, maxLength = 160): string {
   const line = text.replace(/\s+/g, " ").trim();
-  if (line.length <= 160) return line;
-  return `${line.slice(0, 159).replace(/[\uD800-\uDBFF]$/, "")}…`;
+  if (line.length <= maxLength) return line;
+  return `${line.slice(0, maxLength - 1).replace(/[\uD800-\uDBFF]$/, "")}…`;
 }
 
 function unwrapCommand(command: string): string {
@@ -26,7 +26,7 @@ function unwrapCommand(command: string): string {
     : body;
 }
 
-function summarizeEvent(event: Record<string, unknown>, item: Record<string, unknown> | undefined): string {
+export function summarizeEvent(event: Record<string, unknown>, item: Record<string, unknown> | undefined): string {
   const type = asText(event.type);
   switch (item?.type) {
     case "command_execution": {
@@ -131,7 +131,7 @@ export function formatSwarmPost(
   ];
 
   const addList = (label: string, values: string[]) => {
-    const visible = values.slice(0, 4).map(compactText).join(", ");
+    const visible = values.slice(0, 4).map((v) => compactText(v)).join(", ");
     const remaining = values.length > 4 ? ` (+${values.length - 4} more)` : "";
     lines.push(`${label} (${values.length})${visible ? ` · ${visible}${remaining}` : ""}`);
   };

@@ -5,6 +5,12 @@ import {
   loadMergedConfig,
   resolveRunSettings,
 } from "./config.ts";
+import {
+  formatCancelView,
+  formatStatusView,
+  readEventsTail,
+  readStderrTail,
+} from "./disclosure.ts";
 import { canonicalizeCwd } from "./paths.ts";
 import {
   cancelRun,
@@ -48,7 +54,8 @@ function parseArgs(argv: string[]): ParsedArgs {
       key === "help" ||
       key === "done" ||
       key === "raw" ||
-      key === "await-ready"
+      key === "await-ready" ||
+      key === "full"
     ) {
       flags[key] = true;
       continue;
@@ -79,9 +86,40 @@ function getBoolFlag(flags: Record<string, string | boolean>, key: string): bool
   return flags[key] === true || flags[key] === "true";
 }
 
-function printJson(obj: unknown, exitCode = 0): never {
-  process.stdout.write(`${JSON.stringify(obj, null, 2)}\n`);
-  process.exit(exitCode);
+function parsePositiveIntFlag(
+  flags: Record<string, string | boolean>,
+  key: string,
+  min = 1,
+  max = 500
+): { ok: true; value: number | undefined } | { ok: false; error: string } {
+  const raw = flags[key];
+  if (raw === undefined) return { ok: true, value: undefined };
+  if (typeof raw !== "string") {
+    return { ok: false, error: `--${key} requires an integer between ${min} and ${max}` };
+  }
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    return { ok: false, error: `--${key} must be an integer between ${min} and ${max}, got '${raw}'` };
+  }
+  const n = Number(trimmed);
+  if (!Number.isSafeInteger(n) || n < min || n > max) {
+    return { ok: false, error: `--${key} must be an integer between ${min} and ${max}, got '${raw}'` };
+  }
+  return { ok: true, value: n };
+}
+
+function writeStdout(text: string): Promise<void> {
+  return new Promise<void>((resolve) => {
+    process.stdout.write(text, () => resolve());
+  });
+}
+
+function printJson(obj: unknown, exitCode = 0): Promise<never> {
+  return new Promise<never>(() => {
+    process.stdout.write(`${JSON.stringify(obj, null, 2)}\n`, () => {
+      process.exit(exitCode);
+    });
+  });
 }
 
 function parseDecisionsInput(rawInput: string): FindingDispositionInput[] {
@@ -110,11 +148,11 @@ function usage() {
       "review-plan --packet <file|-> [--cwd <dir>] [--task-id <id>] [--role <role>] [--backend <name>] [--model <model>] [--effort <effort>] [--timeout-sec <n>] [--resume] [--background]",
       "delegate --packet <file|-> [--cwd <dir>] [--task-id <id>] [--role <role>] [--backend <name>] [--model <model>] [--effort <effort>] [--timeout-sec <n>] [--resume] [--worktree] [--background]",
       "review-changes --packet <file|-> [--cwd <dir>] [--task-id <id>] [--role <role>] [--backend <name>] [--model <model>] [--effort <effort>] [--timeout-sec <n>] [--resume] [--background]",
-      "start <review-plan|delegate|review-changes> [flags...]",
-      "status --run-id <id> | --task-id <id>",
+      "start <review-plan|delegate|review-changes> [flags...] [--full]",
+      "status (--run-id <id> | --task-id <id>) [--events-tail <n>] [--stderr-tail <n>] [--full]",
       "result --run-id <id> | --task-id <id>",
       "swarm-post (--run-id <id> | --task-id <id>) [--mention <name>] [--done] [--raw]",
-      "cancel --run-id <id>",
+      "cancel --run-id <id> [--full]",
       "list [--task-id <id>] [--cwd <dir>] [--limit <n>]",
       "check-freshness --task-id <id> [--run-id <id>]",
       "dispose --run-id <id> --decisions <json|@file|->",
@@ -127,7 +165,7 @@ export async function main(argv: string[]): Promise<void> {
   const cmd = positional[0];
 
   if (!cmd || cmd === "help" || getBoolFlag(flags, "help")) {
-    printJson(usage(), 0);
+    return printJson(usage(), 0);
   }
 
   if (cmd === "_run-worker") {
@@ -162,7 +200,7 @@ export async function main(argv: string[]): Promise<void> {
       },
       defaults: b.profile.defaults ?? {},
     }));
-    printJson({ backends }, 0);
+    return printJson({ backends }, 0);
   }
 
   if (cmd === "config") {
@@ -170,10 +208,10 @@ export async function main(argv: string[]): Promise<void> {
     const cwd = getStrFlag(flags, "cwd") ? canonicalizeCwd(getStrFlag(flags, "cwd")) : canonicalizeCwd();
     if (sub === "init") {
       const res = initUserConfig();
-      printJson(res, 0);
+      return printJson(res, 0);
     }
     if (sub === "show") {
-      printJson(loadMergedConfig(cwd), 0);
+      return printJson(loadMergedConfig(cwd), 0);
     }
     if (sub === "resolve") {
       const resolved = resolveRunSettings({
@@ -184,7 +222,7 @@ export async function main(argv: string[]): Promise<void> {
         effort: getStrFlag(flags, "effort"),
         timeout_sec: getNumFlag(flags, "timeout-sec"),
       });
-      printJson(
+      return printJson(
         {
           role: resolved.role,
           backend: resolved.backend,
@@ -199,25 +237,26 @@ export async function main(argv: string[]): Promise<void> {
         0
       );
     }
-    printJson({ ok: false, error: `Unknown config subcommand '${sub}'` }, 1);
+    return printJson({ ok: false, error: `Unknown config subcommand '${sub}'` }, 1);
   }
 
   if (cmd === "triage") {
     const summary = getStrFlag(flags, "summary") ?? "";
     if (!summary.trim()) {
-      printJson({ ok: false, error: "--summary is required" }, 1);
+      return printJson({ ok: false, error: "--summary is required" }, 1);
     }
     const filesCsv = getStrFlag(flags, "files");
     const files = filesCsv ? filesCsv.split(",").map((s) => s.trim()).filter(Boolean) : [];
     const kind = getStrFlag(flags, "kind");
-    printJson(triageTask({ summary, files, kind }), 0);
+    return printJson(triageTask({ summary, files, kind }), 0);
   }
 
   if (cmd === "start" || cmd === "review-plan" || cmd === "delegate" || cmd === "review-changes") {
     const execCmd = (cmd === "start" ? positional[1] : cmd) as CommandKind | undefined;
     if (execCmd !== "review-plan" && execCmd !== "delegate" && execCmd !== "review-changes") {
-      printJson({ ok: false, error: "start requires <review-plan|delegate|review-changes>" }, 1);
+      return printJson({ ok: false, error: "start requires <review-plan|delegate|review-changes>" }, 1);
     }
+    const isBackground = cmd === "start" || getBoolFlag(flags, "background");
     const res = await runExecutionCommand({
       command: execCmd,
       cwd: getStrFlag(flags, "cwd"),
@@ -230,24 +269,51 @@ export async function main(argv: string[]): Promise<void> {
       timeout_sec: getNumFlag(flags, "timeout-sec"),
       resume: getBoolFlag(flags, "resume"),
       worktree: getBoolFlag(flags, "worktree"),
-      background: cmd === "start" || getBoolFlag(flags, "background"),
+      background: isBackground,
     });
     if (res.error) {
-      printJson(res.error, 1);
+      return printJson(res.error, 1);
     }
     const run = res.run!;
     const exitCode =
       run.execution_status === "completed" || run.execution_status === "running" ? 0 : 1;
-    printJson(run, exitCode);
+    if (getBoolFlag(flags, "full")) {
+      return printJson(run, exitCode);
+    }
+    if (isBackground) {
+      return printJson(formatStatusView(run, { includeLiveActivity: false }), exitCode);
+    }
+    return printJson(run, exitCode);
   }
 
   if (cmd === "status" || cmd === "result" || cmd === "swarm-post") {
+    if (cmd === "status") {
+      if (
+        flags["finding"] !== undefined ||
+        flags["blocking-only"] !== undefined ||
+        flags["category"] !== undefined
+      ) {
+        return printJson(
+          { ok: false, error: "--finding, --blocking-only, and --category are only supported on 'result'" },
+          1
+        );
+      }
+    }
+    const eventsTailLimit = parsePositiveIntFlag(flags, "events-tail");
+    if (!eventsTailLimit.ok) {
+      return printJson({ ok: false, error: eventsTailLimit.error }, 1);
+    }
+    const stderrTailLimit = parsePositiveIntFlag(flags, "stderr-tail");
+    if (!stderrTailLimit.ok) {
+      return printJson({ ok: false, error: stderrTailLimit.error }, 1);
+    }
+
     const run = resolveRunByIdOrTask({
       run_id: getStrFlag(flags, "run-id"),
       task_id: getStrFlag(flags, "task-id"),
     });
     if (!run) {
-      printJson({ ok: false, error: "Run not found for --run-id / --task-id" }, 1);
+      return printJson({ ok: false, error: "Run not found for --run-id / --task-id" }, 1);
     }
     if (run.execution_status !== "running") {
       const prevFresh = run.freshness_status;
@@ -270,15 +336,43 @@ export async function main(argv: string[]): Promise<void> {
         done: getBoolFlag(flags, "done"),
       });
       if (getBoolFlag(flags, "raw")) {
-        process.stdout.write(`${payload.post}\n`);
+        await writeStdout(`${payload.post}\n`);
         return;
       }
-      printJson(payload, 0);
+      return printJson(payload, 0);
     }
     if (cmd === "status") {
-      printJson({ ...run, live_activity: inspectRunActivity(run.raw_events_path) }, 0);
+      const liveActivity = inspectRunActivity(run.raw_events_path);
+      const eventsTail =
+        eventsTailLimit.value !== undefined
+          ? readEventsTail(run.raw_events_path, eventsTailLimit.value)
+          : undefined;
+      const stderrTail =
+        stderrTailLimit.value !== undefined
+          ? readStderrTail(run.stderr_path, stderrTailLimit.value)
+          : undefined;
+      if (getBoolFlag(flags, "full")) {
+        return printJson(
+          {
+            ...run,
+            live_activity: liveActivity,
+            ...(eventsTail !== undefined ? { events_tail: eventsTail } : {}),
+            ...(stderrTail !== undefined ? { stderr_tail: stderrTail } : {}),
+          },
+          0
+        );
+      }
+      return printJson(
+        formatStatusView(run, {
+          includeLiveActivity: true,
+          liveActivity,
+          eventsTail,
+          stderrTail,
+        }),
+        0
+      );
     }
-    printJson(run, 0);
+    return printJson(run, 0);
   }
 
   if (cmd === "check-freshness") {
@@ -287,7 +381,7 @@ export async function main(argv: string[]): Promise<void> {
       task_id: getStrFlag(flags, "task-id"),
     });
     if (!run) {
-      printJson({ ok: false, error: "Run not found for --task-id / --run-id" }, 1);
+      return printJson({ ok: false, error: "Run not found for --task-id / --run-id" }, 1);
     }
     if (run.execution_status !== "running") {
       const prevFresh = run.freshness_status;
@@ -302,7 +396,7 @@ export async function main(argv: string[]): Promise<void> {
         saveRun(run);
       }
     }
-    printJson(
+    return printJson(
       {
         run_id: run.run_id,
         task_id: run.task_id,
@@ -320,13 +414,16 @@ export async function main(argv: string[]): Promise<void> {
   if (cmd === "cancel") {
     const runId = getStrFlag(flags, "run-id");
     if (!runId) {
-      printJson({ ok: false, error: "cancel requires --run-id" }, 1);
+      return printJson({ ok: false, error: "cancel requires --run-id" }, 1);
     }
     const res = await cancelRun(runId);
     if (!res.ok) {
-      printJson({ ok: false, error: res.error }, 1);
+      return printJson({ ok: false, error: res.error }, 1);
     }
-    printJson({ ...res.run, kill_result: res.kill_result }, 0);
+    if (getBoolFlag(flags, "full")) {
+      return printJson({ ...res.run, kill_result: res.kill_result }, 0);
+    }
+    return printJson(formatCancelView(res.run, res.kill_result), 0);
   }
 
   if (cmd === "list") {
@@ -336,7 +433,7 @@ export async function main(argv: string[]): Promise<void> {
       cwd,
       limit: getNumFlag(flags, "limit") ?? 20,
     });
-    printJson(
+    return printJson(
       {
         runs: runs.map((r) => ({
           run_id: r.run_id,
@@ -362,13 +459,13 @@ export async function main(argv: string[]): Promise<void> {
   if (cmd === "dispose") {
     const rawDecisions = getStrFlag(flags, "decisions");
     if (!rawDecisions) {
-      printJson({ ok: false, error: "dispose requires --decisions <json|@file|->" }, 1);
+      return printJson({ ok: false, error: "dispose requires --decisions <json|@file|->" }, 1);
     }
     let decisions: FindingDispositionInput[];
     try {
       decisions = parseDecisionsInput(rawDecisions);
     } catch (err) {
-      printJson(
+      return printJson(
         { ok: false, error: err instanceof Error ? err.message : String(err) },
         1
       );
@@ -381,9 +478,9 @@ export async function main(argv: string[]): Promise<void> {
       decisions
     );
     if (!res.ok) {
-      printJson({ ok: false, error: res.error }, 1);
+      return printJson({ ok: false, error: res.error }, 1);
     }
-    printJson(
+    return printJson(
       {
         run_id: res.run.run_id,
         task_id: res.run.task_id,
@@ -397,5 +494,5 @@ export async function main(argv: string[]): Promise<void> {
     );
   }
 
-  printJson({ ok: false, error: `Unknown command '${cmd}'`, usage: usage() }, 1);
+  return printJson({ ok: false, error: `Unknown command '${cmd}'`, usage: usage() }, 1);
 }

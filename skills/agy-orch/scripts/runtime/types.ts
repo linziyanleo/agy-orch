@@ -312,3 +312,178 @@ export interface TriageResult {
   recommended_commands: CommandKind[];
   reasons: string[];
 }
+
+export type DisclosureLevel = "status" | "summary" | "detail" | "full";
+
+export interface FingerprintSummary {
+  digest: string;
+  is_git: boolean;
+  head: string;
+  entry_count: number;
+  computed_at: string;
+  status_error?: string;
+}
+
+export interface FindingCounts {
+  total: number;
+  blocking: number;
+  unresolved_blocking: number;
+  by_category: Record<FindingCategory, number>;
+  insufficient_evidence: number;
+}
+
+export interface FindingIndexItem {
+  id: string;
+  category: FindingCategory;
+  blocking: boolean;
+  unresolved_blocking: boolean;
+  title: string;
+  files: string[];
+  insufficient_evidence?: boolean;
+  missing_fields?: string[];
+  disposition?: {
+    action: DispositionAction;
+    accepted: boolean;
+    blocking_after: boolean;
+  };
+}
+
+export interface ReviewOutputSummary {
+  verdict: ReviewOutput["verdict"];
+  summary: string;
+  findings: FindingIndexItem[];
+}
+
+export interface DelegateOutputSummary {
+  status: DelegateOutput["status"];
+  summary: string;
+  modified_files: string[];
+  modified_files_count: number;
+  tests_run: string[];
+  tests_run_count: number;
+  open_issues: string[];
+  open_issues_count: number;
+}
+
+export type StatusOutputSummary =
+  | {
+      kind: "review";
+      verdict: ReviewOutput["verdict"];
+      summary: string;
+      finding_counts: FindingCounts;
+      disposition_count: number;
+    }
+  | {
+      kind: "delegate";
+      status: DelegateOutput["status"];
+      summary: string;
+      modified_files_count: number;
+      tests_run_count: number;
+      open_issues_count: number;
+    };
+
+export interface TailEventItem {
+  type: string | null;
+  item_type: string | null;
+  summary: string;
+}
+
+export interface EventsTailPayload {
+  path: string;
+  exists: boolean;
+  truncated: boolean;
+  event_count: number;
+  events: TailEventItem[];
+}
+
+export interface StderrTailPayload {
+  path: string;
+  exists: boolean;
+  truncated: boolean;
+  line_count: number;
+  lines: string[];
+}
+
+export interface RunViewBase {
+  run_id: string;
+  task_id: string;
+  command: CommandKind;
+  role: string;
+  backend: string;
+  model: string | null;
+  effort: string | null;
+  sandbox: SandboxMode;
+  timeout_sec: number;
+  round: number;
+  max_rounds: number;
+  resumed_from_session_id: string | null;
+  cwd: string;
+  effective_cwd: string;
+  worktree_path: string | null;
+  execution_status: ExecutionStatus;
+  acceptance_status: AcceptanceStatus;
+  failure_kind: FailureKind | null;
+  failure_message: string | null;
+  pid: number | null;
+  pgid: number | null;
+  worker_pid: number | null;
+  exit_code: number | null;
+  signal: string | null;
+  backend_session_id: string | null;
+  pre_fingerprint: FingerprintSummary;
+  post_fingerprint: FingerprintSummary | null;
+  changed_files_count: number;
+  changed_files: string[];
+  boundary_violation: boolean;
+  boundary_violations: string[];
+  verdict_valid: boolean;
+  freshness_status: RunRecord["freshness_status"];
+  started_at: string;
+  ended_at: string | null;
+  raw_events_path: string;
+  stderr_path: string;
+  prompt_path: string;
+  last_message_path: string;
+  disclosure_level: DisclosureLevel;
+  details_omitted: string[];
+  next_actions: string[];
+}
+
+export interface RunStatusView extends RunViewBase {
+  disclosure_level: "status";
+  output_summary: StatusOutputSummary | null;
+  live_activity?: RunLiveActivity | null;
+  events_tail?: EventsTailPayload;
+  stderr_tail?: StderrTailPayload;
+}
+
+export interface RunCancelView extends RunViewBase {
+  disclosure_level: "status";
+  output_summary: StatusOutputSummary | null;
+  kill_result: { dead: boolean; escalated_to_sigkill: boolean } | null;
+}
+
+export interface RunSummaryView extends RunViewBase {
+  disclosure_level: "summary";
+  dispositions_count: number;
+  finding_counts?: FindingCounts;
+  parsed_output: ReviewOutputSummary | DelegateOutputSummary | null;
+  events_tail?: EventsTailPayload;
+  stderr_tail?: StderrTailPayload;
+}
+
+export interface RunDetailView extends RunViewBase {
+  disclosure_level: "detail";
+  finding_counts: FindingCounts;
+  filter: {
+    finding_ids?: string[];
+    blocking_only?: boolean;
+    categories?: FindingCategory[];
+  };
+  matched_count: number;
+  total_findings: number;
+  parsed_output: ReviewOutput;
+  dispositions: FindingDispositionRecord[];
+  events_tail?: EventsTailPayload;
+  stderr_tail?: StderrTailPayload;
+}
