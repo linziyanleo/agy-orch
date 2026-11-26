@@ -321,6 +321,36 @@ test("CLI E2E: config init is non-destructive, review-changes + dispose + resume
     assert.equal(disp.code, 0);
     assert.equal(disp.data.acceptance_status, "approved");
 
+    // Dispose round 1 with dispute_false_positive + counter_evidence on F1 -> approved & preserved in result
+    const disputeCounterEvidence = "src/form.ts:1 is synchronous and guarded by caller test";
+    const dispFalsePos = ctx.runCli([
+      "dispose",
+      "--run-id",
+      rev1.data.run_id,
+      "--decisions",
+      JSON.stringify([
+        {
+          finding_id: "F1",
+          action: "dispute_false_positive",
+          reason: "Trigger path is unreachable under caller invariants",
+          counter_evidence: disputeCounterEvidence,
+        },
+        { finding_id: "F2", action: "reject_overdesign" },
+      ]),
+    ]);
+    assert.equal(dispFalsePos.code, 0);
+    assert.equal(dispFalsePos.data.acceptance_status, "approved");
+    assert.deepEqual(dispFalsePos.data.unresolved_blocking_ids, []);
+
+    const rev1Summary = ctx.runCli(["result", "--run-id", rev1.data.run_id]);
+    assert.equal(rev1Summary.code, 0);
+    assert.equal(rev1Summary.data.finding_counts.unresolved_blocking, 0);
+
+    const rev1Detail = ctx.runCli(["result", "--run-id", rev1.data.run_id, "--finding", "F1"]);
+    assert.equal(rev1Detail.code, 0);
+    assert.equal(rev1Detail.data.dispositions[0].action, "dispute_false_positive");
+    assert.equal(rev1Detail.data.dispositions[0].counter_evidence, disputeCounterEvidence);
+
     // Mutate file in repoDir -> check-freshness must invalidate old review verdict
     fs.writeFileSync(path.join(ctx.repoDir, "src", "form.ts"), "export const changed = 1;\n", "utf8");
     const fresh = ctx.runCli(["check-freshness", "--task-id", "task-a"]);

@@ -23,6 +23,7 @@ const VALID_DISPOSITION_ACTIONS = new Set<DispositionAction>([
   "defer",
   "request_evidence",
   "reject_overdesign",
+  "dispute_false_positive",
 ]);
 
 const PLACEHOLDER_RE = /^(n\/a|na|none|null|undefined|-+|tbd|todo|\?+)$/i;
@@ -239,6 +240,14 @@ export function applyDispositions(
       errors.push(`decisions[${i}]: invalid action '${d.action}'`);
       continue;
     }
+    if (d.reason !== undefined && typeof d.reason !== "string") {
+      errors.push(`decisions[${i}]: reason must be a string`);
+      continue;
+    }
+    if (d.counter_evidence !== undefined && typeof d.counter_evidence !== "string") {
+      errors.push(`decisions[${i}]: counter_evidence must be a string`);
+      continue;
+    }
     decisionMap.set(d.finding_id, d);
   }
   if (errors.length > 0) {
@@ -252,11 +261,27 @@ export function applyDispositions(
     if (!decision) continue;
 
     const reason = decision.reason?.trim() ?? "";
+    const counterEvidence = decision.counter_evidence?.trim() ?? "";
     let blockingAfter = false;
     let accepted = true;
     let note = "";
 
-    if (finding.category === "optional_polish") {
+    if (decision.action === "dispute_false_positive") {
+      if (!isConcreteText(reason) || !isConcreteText(counterEvidence)) {
+        accepted = false;
+        blockingAfter =
+          finding.category === "optional_polish"
+            ? false
+            : finding.category === "real_defect" ||
+              finding.category === "requirement_gap" ||
+              finding.blocking;
+        note =
+          "dispute_false_positive requires concrete non-placeholder reason and counter_evidence (file:line or test)";
+      } else {
+        blockingAfter = false;
+        note = `disputed false positive: ${reason} [counter_evidence: ${counterEvidence}]`;
+      }
+    } else if (finding.category === "optional_polish") {
       blockingAfter = false;
       note =
         decision.action === "reject_overdesign" || decision.action === "defer"
@@ -306,6 +331,7 @@ export function applyDispositions(
       finding_id: finding.id,
       action: decision.action,
       reason: decision.reason,
+      ...(decision.counter_evidence !== undefined ? { counter_evidence: decision.counter_evidence } : {}),
       category: finding.category,
       accepted,
       blocking_after: blockingAfter,

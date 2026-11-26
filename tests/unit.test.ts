@@ -400,3 +400,142 @@ test("buildExecutionPrompt enforces trust-boundary review rules, resume scope, a
   assert.match(delegatePrompt, /\* src\/checkout\.ts/);
   assert.match(delegatePrompt, /do NOT add unrequested abstractions, extra dependencies, or redundant defensive fallbacks inside trusted internal callers/);
 });
+
+test("applyDispositions supports dispute_false_positive only with concrete reason and counter_evidence", () => {
+  const validated = validateReviewOutput({
+    verdict: "changes_requested",
+    summary: "Reported two defects and one blocking tradeoff",
+    findings: [
+      {
+        id: "F1",
+        category: "real_defect",
+        blocking: true,
+        title: "Missing null check inside internal helper",
+        evidence: "src/cli.ts:120 reads options.cwd without checking null",
+        trigger: "Pass null from parseArgs",
+        impact: "Throws TypeError",
+        minimal_fix: "Add fallback if (!options?.cwd)",
+        files: ["src/cli.ts"],
+      },
+      {
+        id: "F2",
+        category: "requirement_gap",
+        blocking: true,
+        title: "Missing integer bounds check",
+        evidence: "src/cli.ts:150 uses limit directly",
+        trigger: "Pass --events-tail -1",
+        impact: "Negative slice",
+        minimal_fix: "Check limit > 0",
+        files: ["src/cli.ts"],
+      },
+      {
+        id: "F3",
+        category: "engineering_tradeoff",
+        blocking: true,
+        title: "Use custom parser framework",
+        evidence: "src/cli.ts:41 uses hand-rolled loop",
+        trigger: "Add new flag",
+        impact: "Manual flag maintenance",
+        minimal_fix: "Install parser package",
+        files: ["src/cli.ts"],
+      },
+    ],
+  });
+  assert.equal(validated.ok, true);
+  if (!validated.ok) return;
+
+  const mockRun: RunRecord = {
+    run_id: "run-dispute-1",
+    task_id: "task-dispute-1",
+    command: "review-changes",
+    role: "reviewer",
+    backend: "codex",
+    model: "gpt-6.2-sol",
+    effort: "xhigh",
+    sandbox: "read-only",
+    timeout_sec: 600,
+    round: 2,
+    max_rounds: 2,
+    resumed_from_session_id: null,
+    cwd: "/tmp",
+    effective_cwd: "/tmp",
+    worktree_path: null,
+    execution_status: "completed",
+    acceptance_status: "pending_triage",
+    failure_kind: null,
+    failure_message: null,
+    pid: null,
+    pgid: null,
+    worker_pid: null,
+    exit_code: 0,
+    signal: null,
+    backend_session_id: "sess-dispute",
+    pre_fingerprint: { digest: "a", is_git: true, head: "h", entries: {}, computed_at: "" },
+    post_fingerprint: { digest: "a", is_git: true, head: "h", entries: {}, computed_at: "" },
+    changed_files: [],
+    boundary_violation: false,
+    boundary_violations: [],
+    verdict_valid: true,
+    freshness_status: "fresh",
+    parsed_output: validated.output,
+    dispositions: [],
+    started_at: "",
+    ended_at: "",
+    raw_events_path: "",
+    stderr_path: "",
+    prompt_path: "",
+    last_message_path: "",
+  };
+
+  // Non-string reason or counter_evidence must fail input validation
+  const badTypes = applyDispositions(mockRun, [
+    { finding_id: "F1", action: "dispute_false_positive", reason: 123 as unknown as string, counter_evidence: "x" },
+    { finding_id: "F2", action: "dispute_false_positive", reason: "ok", counter_evidence: {} as unknown as string },
+  ]);
+  assert.equal(badTypes.ok, false);
+
+  // Missing or placeholder reason / counter_evidence MUST keep substantiated findings blocked
+  const incomplete = applyDispositions(mockRun, [
+    { finding_id: "F1", action: "dispute_false_positive", reason: "Internal invariant holds" },
+    { finding_id: "F2", action: "dispute_false_positive", reason: "none", counter_evidence: "src/cli.ts:105" },
+    { finding_id: "F3", action: "dispute_false_positive", reason: "Out of scope", counter_evidence: "N/A" },
+  ]);
+  assert.equal(incomplete.ok, true);
+  if (!incomplete.ok) return;
+  assert.equal(incomplete.acceptance_status, "blocked");
+  assert.deepEqual(incomplete.unresolved_blocking_ids, ["F1", "F2", "F3"]);
+  assert.deepEqual(incomplete.dispositions.map((d) => d.accepted), [false, false, false]);
+  assert.deepEqual(incomplete.dispositions.map((d) => d.blocking_after), [true, true, true]);
+
+  // Concrete reason + concrete counter_evidence clears blocking and transitions to approved
+  const resolved = applyDispositions(mockRun, [
+    {
+      finding_id: "F1",
+      action: "dispute_false_positive",
+      reason: "canonicalizeCwd always returns a non-null string before helper call",
+      counter_evidence: "src/cli.ts:16 and src/runner.ts:128 guarantee non-null string cwd",
+    },
+    {
+      finding_id: "F2",
+      action: "dispute_false_positive",
+      reason: "CLI boundary already validates --events-tail integer bounds",
+      counter_evidence: "src/cli.ts:105 parsePositiveIntFlag enforces 1..500; npm test passes",
+    },
+    {
+      finding_id: "F3",
+      action: "dispute_false_positive",
+      reason: "Existing flag parser already handles all supported flags without extra deps",
+      counter_evidence: "src/cli.ts:41 parseArgs and tests/cli-e2e.test.ts cover flag parsing",
+    },
+  ]);
+  assert.equal(resolved.ok, true);
+  if (!resolved.ok) return;
+  assert.equal(resolved.acceptance_status, "approved");
+  assert.deepEqual(resolved.unresolved_blocking_ids, []);
+  assert.deepEqual(resolved.dispositions.map((d) => d.accepted), [true, true, true]);
+  assert.deepEqual(resolved.dispositions.map((d) => d.blocking_after), [false, false, false]);
+  assert.equal(
+    resolved.dispositions[0].counter_evidence,
+    "src/cli.ts:16 and src/runner.ts:128 guarantee non-null string cwd"
+  );
+});

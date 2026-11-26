@@ -43,16 +43,18 @@ After `review-plan` or `review-changes` completes, run `dispose` to record the l
 
 - `optional_polish`:
   - `reject_overdesign` or `defer`: dismissed without blocking (`blocking_after: false`).
-  - `accept` or `minimal_fix`: handled, non-blocking.
+  - `accept`, `minimal_fix`, or `dispute_false_positive` (requires concrete `reason` + `counter_evidence` to set `accepted: true`): handled, non-blocking.
 - `engineering_tradeoff`:
   - `reject_overdesign` or `defer`: **must include a non-empty `reason`** explaining why the tradeoff is intentional or out of scope; clears blocking (`blocking_after: false`). Without `reason`, `accepted` is `false` and blocking remains.
+  - `dispute_false_positive`: requires **both** a non-empty, non-placeholder `reason` and `counter_evidence` (local `file:line`, symbol invariant, or passing test command) to clear blocking (`accepted: true`, `blocking_after: false`); otherwise `accepted` is `false` and `blocking_after` stays `finding.blocking`.
   - `accept` or `minimal_fix`: clears blocking.
   - `request_evidence`: stays blocking (`blocking_after: true`).
 - `real_defect` or `requirement_gap`:
   - `accept` or `minimal_fix`: clears blocking (`blocking_after: false`) once verified/scheduled for fix.
   - `request_evidence`: keeps `blocking_after: true`.
   - `reject_overdesign` or `defer`: **blocked by runtime** unless the runtime already flagged `insufficient_evidence: true` on that finding AND a non-empty `reason` is provided for `reject_overdesign`. Substantiated defects cannot be dismissed as overdesign.
-  - Locally disproved claims: if a reviewer mislabels a false positive or internal over-defensive suggestion as `real_defect` with non-placeholder text, do not apply appeasement code just to clear `unresolved_blocking_ids`; verify locally, keep the local counter-evidence (`file:line` or passing test), and report it directly to the user without spinning extra rounds.
+  - `dispute_false_positive`: requires **both** a non-empty, non-placeholder `reason` and `counter_evidence` (local `file:line`, symbol invariant, or passing test command) to clear blocking (`accepted: true`, `blocking_after: false`). Without both concrete fields, `accepted` is `false` and `blocking_after` remains `true`.
+  - Locally disproved claims: if a reviewer mislabels a false positive or internal over-defensive suggestion as `real_defect` with non-placeholder text, do not apply appeasement code or spin extra rounds; verify locally and record `dispute_false_positive` with `reason` and `counter_evidence` so the run resolves to `approved` cleanly.
 - Omitted findings: any finding left out of `--decisions` whose category is `real_defect`, `requirement_gap`, or `blocking: true` remains in `unresolved_blocking_ids`.
 
 ## 2-Round Budget and Acceptance Outcome

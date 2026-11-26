@@ -124,10 +124,10 @@ node "$AGY_ORCH" dispose --run-id "$RUN_ID" --decisions '[
 ]'
 ```
 
-`--decisions` accepts inline JSON, `@path/to/decisions.json`, or `-` (stdin). Valid actions are `accept`, `minimal_fix`, `defer`, `request_evidence`, and `reject_overdesign`.
+`--decisions` accepts inline JSON, `@path/to/decisions.json`, or `-` (stdin). Valid actions are `accept`, `minimal_fix`, `defer`, `request_evidence`, `reject_overdesign`, and `dispute_false_positive`.
 
 - Validate external boundaries (CLI, network, config, storage, untrusted input) once, and reject internal over-defensive guards (redundant nil/type checks, silent fallbacks, or defending impossible internal inputs where caller invariants already hold) alongside speculative abstractions, extra dependencies, and unrequested retry/plugin layers via `reject_overdesign` or `defer` (with a concrete `reason` on `engineering_tradeoff`).
-- Runtime `dispose` blocks `reject_overdesign` and `defer` on substantiated `real_defect` or `requirement_gap` claims (unless `insufficient_evidence: true`). When local code or tests disprove a `real_defect` claim or show its trigger violates established internal invariants, do NOT write appeasement code or run extra review rounds just to force `acceptance_status: "approved"` — stop and report the local counter-evidence (`file:line` or test) to the user.
+- Runtime `dispose` blocks `reject_overdesign` and `defer` on substantiated `real_defect` or `requirement_gap` claims (unless `insufficient_evidence: true`). When local inspection or tests disprove a `real_defect` or `requirement_gap` claim (or show its trigger violates established internal invariants), record `action: "dispute_false_positive"` with both a concrete `reason` and concrete `counter_evidence` (citing local `file:line`, caller invariant, or passing test command) so `acceptance_status` resolves cleanly without appeasement edits or extra review rounds.
 - Maximum discussion budget defaults to `max_rounds = 2`. If `round >= max_rounds` and any `real_defect` or `requirement_gap` remains unresolved, `dispose` sets `acceptance_status` to `blocked` — never mark unresolved defects as approved.
 - Avoid review loops: default to 1 review pass followed by minimal local fixes and local test verification; run Round 2 (`--resume` on the same `--task-id`) only when fixes alter non-trivial state, concurrency, or auth logic (or when the user explicitly asked for a clean post-fix review gate), and never mint new `--task-id` suffixes (such as `-r2` or `-final`) to bypass `max_rounds = 2`.
 

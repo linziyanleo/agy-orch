@@ -44,7 +44,8 @@ export type DispositionAction =
   | "minimal_fix"
   | "defer"
   | "request_evidence"
-  | "reject_overdesign";
+  | "reject_overdesign"
+  | "dispute_false_positive";
 
 export interface PacketScope {
   allowed_paths: string[];
@@ -211,6 +212,7 @@ export interface FindingDispositionInput {
   finding_id: string;
   action: DispositionAction;
   reason?: string;
+  counter_evidence?: string;
 }
 
 export interface FindingDispositionRecord extends FindingDispositionInput {

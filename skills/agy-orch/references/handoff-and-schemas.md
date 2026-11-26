@@ -154,7 +154,7 @@ Used by `delegate`:
 
 ## `dispose` Input Example
 
-Accepts a JSON array or `{ "decisions": [...] }` via `--decisions <json|@file|->`:
+Accepts a JSON array or `{ "decisions": [...] }` via `--decisions <json|@file|->`. When using `dispute_false_positive`, both non-placeholder `reason` and `counter_evidence` are required:
 
 ```json
 [
@@ -167,6 +167,12 @@ Accepts a JSON array or `{ "decisions": [...] }` via `--decisions <json|@file|->
     "finding_id": "F2",
     "action": "reject_overdesign",
     "reason": "Introducing Redux Toolkit for a single submit hook exceeds scope"
+  },
+  {
+    "finding_id": "F3",
+    "action": "dispute_false_positive",
+    "reason": "Caller already enforces non-null payload at CLI entry",
+    "counter_evidence": "src/checkout/submit.ts:12 validates input once; internal helper is only called on line 18"
   }
 ]
 ```
