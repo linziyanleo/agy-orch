@@ -405,3 +405,83 @@ const timer = setInterval(() => {
   assert.equal(readStored().freshness_status, "stale_by_code_change");
   assert.equal("live_activity" in readStored(), false);
 });
+
+test("Swarm posts append drill-down Details hints only when details are omitted or actionable", () => {
+  // 1. Running run never emits Details ·
+  const running = formatSwarmPost(reviewRun({ execution_status: "running", parsed_output: null }));
+  assert.doesNotMatch(running.post, /Details ·/);
+
+  // 2. Clean approve with 0 findings and short summary never emits Details ·
+  const cleanApprove = formatSwarmPost(reviewRun({
+    acceptance_status: "approved",
+    parsed_output: { verdict: "approve", summary: "Short clean approval", findings: [] },
+  }));
+  assert.doesNotMatch(cleanApprove.post, /Details ·/);
+
+  // 3. Long summary (>160 chars) on 0-finding approve emits Details · agy-orch result --run-id ...
+  const longSummary = formatSwarmPost(reviewRun({
+    acceptance_status: "approved",
+    parsed_output: { verdict: "approve", summary: "x".repeat(165), findings: [] },
+  }));
+  assert.match(longSummary.post, /\nDetails · agy-orch result --run-id run-test$/);
+
+  // 4. Unresolved blocking finding emits --blocking-only hint
+  const unresolved = formatSwarmPost(reviewRun());
+  assert.match(unresolved.post, /\nDetails · agy-orch result --run-id run-test --blocking-only$/);
+
+  // 5. Resolved review with findings (>0) emits generic result hint without mentioning resolved ID/title
+  const base = reviewRun();
+  const disp = applyDispositions(base, [{ finding_id: "F1", action: "minimal_fix" }]);
+  assert.ok(disp.ok);
+  const resolved = formatSwarmPost({ ...base, acceptance_status: "approved", dispositions: disp.dispositions });
+  assert.match(resolved.post, /\nDetails · agy-orch result --run-id run-test$/);
+  assert.doesNotMatch(resolved.post, /F1|Duplicate submit/);
+
+  // 6. Failed / boundary_violation / partial emit --stderr-tail 40 hint
+  const failed = formatSwarmPost(reviewRun({
+    command: "delegate",
+    execution_status: "failed",
+    acceptance_status: "blocked",
+    parsed_output: null,
+    failure_kind: "backend_error",
+    failure_message: "crashed",
+  }));
+  assert.match(failed.post, /\nDetails · agy-orch result --run-id run-test --stderr-tail 40$/);
+
+  const partial = formatSwarmPost(reviewRun({
+    command: "delegate",
+    execution_status: "partial",
+    acceptance_status: "blocked",
+    parsed_output: null,
+    changed_files: ["src/form.ts"],
+  }));
+  assert.match(partial.post, /\nDetails · agy-orch result --run-id run-test --stderr-tail 40$/);
+
+  // 7. Truncated delegate list (>4 items) emits generic result hint
+  const delTruncated = formatSwarmPost(reviewRun({
+    command: "delegate",
+    acceptance_status: "approved",
+    parsed_output: {
+      status: "completed",
+      summary: "Done",
+      modified_files: ["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"],
+      tests_run: ["npm test"],
+      open_issues: [],
+    },
+  }));
+  assert.match(delTruncated.post, /\nDetails · agy-orch result --run-id run-test$/);
+
+  // 8. Single-item list with entry >160 chars clipped by compactText also emits Details hint
+  const delClippedItem = formatSwarmPost(reviewRun({
+    command: "delegate",
+    acceptance_status: "approved",
+    parsed_output: {
+      status: "completed",
+      summary: "Done",
+      modified_files: [`src/${"nested/".repeat(30)}file.ts`],
+      tests_run: ["npm test"],
+      open_issues: [],
+    },
+  }));
+  assert.match(delClippedItem.post, /\nDetails · agy-orch result --run-id run-test$/);
+});

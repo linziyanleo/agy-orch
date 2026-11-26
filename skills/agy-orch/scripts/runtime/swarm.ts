@@ -130,17 +130,30 @@ export function formatSwarmPost(
     `execution=${run.execution_status} acceptance=${run.acceptance_status} freshness=${run.freshness_status} verdict_valid=${run.verdict_valid}`,
   ];
 
+  let listTruncated = false;
+  let summaryTruncated = false;
+  let unresolvedCount = 0;
+
   const addList = (label: string, values: string[]) => {
-    const visible = values.slice(0, 4).map((v) => compactText(v)).join(", ");
+    if (values.length > 4) listTruncated = true;
+    const visibleValues = values.slice(0, 4);
+    if (visibleValues.some((v) => v.replace(/\s+/g, " ").trim().length > 160)) {
+      listTruncated = true;
+    }
+    const visible = visibleValues.map((v) => compactText(v)).join(", ");
     const remaining = values.length > 4 ? ` (+${values.length - 4} more)` : "";
     lines.push(`${label} (${values.length})${visible ? ` · ${visible}${remaining}` : ""}`);
   };
 
   const output = run.parsed_output;
   if (output) {
+    if (output.summary.replace(/\s+/g, " ").trim().length > 160) {
+      summaryTruncated = true;
+    }
     lines.push(compactText(output.summary));
     if ("findings" in output) {
       const unresolved = getUnresolvedBlockingFindings(output.findings, run.dispositions);
+      unresolvedCount = unresolved.length;
       addList("Blocking findings", unresolved.map((finding) => `${finding.id} ${finding.title}`));
     } else {
       addList("Modified files", output.modified_files);
@@ -163,6 +176,21 @@ export function formatSwarmPost(
     } else {
       lines.push("Activity · Waiting for JSONL events");
     }
+  } else if (unresolvedCount > 0) {
+    lines.push(`Details · agy-orch result --run-id ${run.run_id} --blocking-only`);
+  } else if (
+    run.failure_kind ||
+    run.failure_message ||
+    run.boundary_violation ||
+    run.execution_status === "partial"
+  ) {
+    lines.push(`Details · agy-orch result --run-id ${run.run_id} --stderr-tail 40`);
+  } else if (
+    (output && "findings" in output && output.findings.length > 0) ||
+    summaryTruncated ||
+    listTruncated
+  ) {
+    lines.push(`Details · agy-orch result --run-id ${run.run_id}`);
   }
 
   return {
